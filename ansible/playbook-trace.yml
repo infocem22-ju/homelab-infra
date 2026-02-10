@@ -1,45 +1,42 @@
 - name: Trace Ansible journalière (fichier fixe)
   hosts: jupi
   become: yes
+  gather_facts: yes
 
   vars:
     stamp_file: /tmp/ansible-connection-today.txt
 
   tasks:
-    # 1) Tester si le fichier existe déjà
     - name: Vérifier si le fichier de trace existe
       stat:
         path: "{{ stamp_file }}"
       register: stamp_stat
 
-    # 2) Lire le fichier seulement s'il existe
     - name: Lire le fichier de trace (si présent)
       slurp:
         src: "{{ stamp_file }}"
       register: stamp_raw
       when: stamp_stat.stat.exists
 
-    # 3) Extraire la date stockée (sinon vide)
     - name: Déduire la date stockée
       set_fact:
         stored_date: >-
           {{
             (
               (stamp_raw.content | default('') | b64decode)
-              | regex_search('^DATE=(.*)$', multiline=True)
+              | regex_search('^DATE=(.*)$', '\1', multiline=True)
             )
             | default('')
             | trim
           }}
 
-    # 4) Écrire le fichier si nouveau jour (ou si aucun fichier / date absente)
     - name: Écrire le fichier si nouveau jour (ou fichier absent)
       copy:
         dest: "{{ stamp_file }}"
         content: |
-          DATE={{ ansible_date_time.date }}
-          FIRST_RUN={{ ansible_date_time.date }} {{ ansible_date_time.time }}
+          DATE={{ ansible_facts['date_time']['date'] }}
+          FIRST_RUN={{ ansible_facts['date_time']['date'] }} {{ ansible_facts['date_time']['time'] }}
         owner: root
         group: root
         mode: "0644"
-      when: stored_date != ansible_date_time.date
+      when: stored_date != ansible_facts['date_time']['date']
