@@ -1,0 +1,69 @@
+---
+- name: Demo - installer et lancer Zabbix Agent 2 (mode actif)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    # Robuste en Podman : rejoint l'hôte (et donc ton Docker exposé en 10051)
+    zbx_server_active: "host.containers.internal"
+    zbx_release_deb: "/tmp/zabbix-release.deb"
+    zbx_repo_deb_url: "https://repo.zabbix.com/zabbix/7.4/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_7.4+debian12_all.deb"
+
+  tasks:
+    - name: Dépendances
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - wget
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: true
+
+    - name: Télécharger le paquet repo Zabbix (Debian 12)
+      ansible.builtin.get_url:
+        url: "{{ zbx_repo_deb_url }}"
+        dest: "{{ zbx_release_deb }}"
+        mode: "0644"
+
+    - name: Installer le paquet repo Zabbix
+      ansible.builtin.apt:
+        deb: "{{ zbx_release_deb }}"
+
+    - name: Installer zabbix-agent2
+      ansible.builtin.apt:
+        name: zabbix-agent2
+        state: present
+        update_cache: true
+
+    - name: Configurer zabbix-agent2 (mode actif)
+      ansible.builtin.copy:
+        dest: /etc/zabbix/zabbix_agent2.conf
+        mode: "0644"
+        content: |
+          # Passive checks (optionnel)
+          Server={{ zbx_server_active }}
+
+          # Active checks (agent -> server)
+          ServerActive={{ zbx_server_active }}
+
+          # Identifiant côté Zabbix
+          Hostname={{ inventory_hostname }}
+
+          Include=/etc/zabbix/zabbix_agent2.d/*.conf
+
+    - name: (Re)lancer zabbix_agent2 sans systemd
+      ansible.builtin.shell: |
+        set -e
+        pkill -x zabbix_agent2 2>/dev/null || true
+        nohup zabbix_agent2 >/var/log/zabbix/zabbix_agent2.stdout 2>&1 &
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Vérifier que l'agent écoute sur 10050 (localement)
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 10050
+        timeout: 10

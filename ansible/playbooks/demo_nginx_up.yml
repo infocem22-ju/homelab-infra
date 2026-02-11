@@ -1,0 +1,39 @@
+---
+- name: Demo - déployer nginx et vérifier qu'il répond
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Installer nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Démarrer et activer nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Installer curl (pour test HTTP)
+      ansible.builtin.apt:
+        name: curl
+        state: present
+
+    - name: Attendre que nginx écoute sur 80
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 80
+        timeout: 15
+
+    - name: Vérifier la réponse HTTP locale
+      ansible.builtin.command: curl -fsS http://127.0.0.1/
+      register: curl_out
+      changed_when: false
+
+    - name: Afficher un extrait de la page (preuve)
+      ansible.builtin.debug:
+        msg: "{{ (curl_out.stdout | regex_replace('\\s+', ' ') )[:120] }}"
