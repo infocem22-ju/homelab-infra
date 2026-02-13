@@ -50,7 +50,9 @@
 
           # Identifiant côté Zabbix
           Hostname={{ inventory_hostname }}
-
+          LogFile=/var/log/zabbix/zabbix_agent2.log
+          LogFileSize=10
+          HostMetadata=podman-demo
           Include=/etc/zabbix/zabbix_agent2.d/*.conf
 
     - name: (Re)lancer zabbix_agent2 sans systemd
