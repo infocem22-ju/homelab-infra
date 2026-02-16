@@ -1,0 +1,39 @@
+---
+- name: Demo - simuler une panne nginx
+  hosts: all
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Stopper nginx proprement si possible (service)
+      ansible.builtin.shell: |
+        set -e
+        if command -v systemctl >/dev/null 2>&1; then
+          systemctl stop nginx || true
+        elif command -v service >/dev/null 2>&1; then
+          service nginx stop || true
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Tuer nginx si encore présent (fallback)
+      ansible.builtin.shell: |
+        set -e
+        if pgrep -x nginx >/dev/null 2>&1; then
+          pkill -TERM nginx || true
+          sleep 0.5
+        fi
+        if pgrep -x nginx >/dev/null 2>&1; then
+          pkill -KILL nginx || true
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Vérifier que le port 80 ne répond plus
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 80
+        state: stopped
+        timeout: 10
