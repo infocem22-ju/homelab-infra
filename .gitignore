@@ -1,9 +1,19 @@
-.ZABBIX_FIABLE
-zabbix_backup_2026-01-22.sql.gz
-zbx.fish
+# --- Secrets ---
+**/id_ed25519
+**/id_ed25519.pub
 
-ansible/id_ed25519
-ansible/id_ed25519.pub
+# --- Logs ---
+**/*.log
 
+# --- Backups ---
 *.sql.gz
 
+# --- Temporary / old files ---
+*.old
+
+# --- Ollama runtime data ---
+ollama/data/
+ollama/ollama-data/
+
+# --- Local markers ---
+.ZABBIX_FIABLE
