@@ -1,0 +1,8 @@
+---
+- name: "Nginx demo | up"
+  ansible.builtin.include_tasks: up.yml
+  when: nginx_demo_state == "up"
+
+- name: "Nginx demo | down"
+  ansible.builtin.include_tasks: down.yml
+  when: nginx_demo_state == "down"

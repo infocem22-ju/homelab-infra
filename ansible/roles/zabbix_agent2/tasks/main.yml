@@ -1,0 +1,54 @@
+---
+- name: Dependencies
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - wget
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: true
+
+- name: Download Zabbix release package (Debian 12)
+  ansible.builtin.get_url:
+    url: "{{ zbx_repo_deb_url }}"
+    dest: /tmp/zabbix-release.deb
+    mode: "0644"
+
+- name: Install Zabbix release package
+  ansible.builtin.apt:
+    deb: /tmp/zabbix-release.deb
+
+- name: Install zabbix-agent2
+  ansible.builtin.apt:
+    name: zabbix-agent2
+    state: present
+    update_cache: true
+
+- name: Ensure log dir exists
+  ansible.builtin.file:
+    path: "{{ zbx_log_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Configure zabbix-agent2
+  ansible.builtin.template:
+    src: zabbix_agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.conf
+    mode: "0644"
+
+# Dans tes conteneurs: pas de systemd => on gère le process à la main
+- name: Restart zabbix_agent2 (no systemd)
+  ansible.builtin.shell: |
+    set -e
+    pkill -x zabbix_agent2 2>/dev/null || true
+    nohup zabbix_agent2 >/dev/null 2>&1 &
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Wait for agent2 to listen on 10050 locally
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 10050
+    timeout: 10

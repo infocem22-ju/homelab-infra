@@ -1,0 +1,33 @@
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama-9070xt
+    ports: ["11436:11434"]
+    volumes: ["./ollama-data:/root/.ollama"]
+    devices: ["/dev/kfd:/dev/kfd", "/dev/dri:/dev/dri"]
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=12.0.1
+      - OLLAMA_LLM_LIBRARY=rocm
+      - ROCR_VISIBLE_DEVICES=0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "ollama list >/dev/null 2>&1"]
+      interval: 30s
+      retries: 5
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui-homelab
+    ports: ["3000:8080"]
+    volumes:
+      - open-webui:/app/backend/data
+      - ./knowledge:/knowledge:ro
+      - /home/thauthau/homelab-infra/ansible:/sources/ansible:ro
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+    depends_on: [ollama]
+    restart: unless-stopped
+
+volumes:
+  open-webui:

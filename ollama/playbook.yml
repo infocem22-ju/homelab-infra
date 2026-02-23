@@ -1,0 +1,9 @@
+    name: Lance les conteneurs Docker
+    hosts: all
+    become: yes
+
+    tasks:
+        name: Lancer les conteneurs Docker
+        docker_compose:
+          project_src: /chemin/vers/votre/projet
+          state: present

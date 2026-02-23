@@ -1,0 +1,32 @@
+---
+- name: Install nginx + curl
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - curl
+    state: present
+    update_cache: true
+- name: Deploy demo index page
+
+#ajout de la page index
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+    mode: "0644"
+
+# Dans tes conteneurs, pas forcément systemd -> on démarre nginx à la main.
+- name: Start nginx (no systemd, best-effort)
+  ansible.builtin.shell: |
+    set -e
+    nginx -t
+    nginx -s quit >/dev/null 2>&1 || true
+    nginx
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Wait for nginx port
+  ansible.builtin.wait_for:
+    host: "{{ nginx_demo_listen_host }}"
+    port: "{{ nginx_demo_listen_port }}"
+    timeout: 15

@@ -8,6 +8,7 @@ ANSIBLE_DIR="${ANSIBLE_DIR:-./ansible}"
 INV_FILE="${INV_FILE:-$ANSIBLE_DIR/inventory.yml}"
 NET_NAME="${NET_NAME:-${PROJECT}-net}"
 SSH_PORT_BASE="${SSH_PORT_BASE:-2220}"   # node-1 => 2221, node-2 => 2222, ...
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/homelab_ansible_ed25519}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Manque: $1" >&2; exit 1; }; }
 need podman
@@ -31,19 +32,22 @@ container_ip() {
 }
 
 ensure_ssh_key() {
-  mkdir -p "$ANSIBLE_DIR"
-  if [ ! -f "$ANSIBLE_DIR/id_ed25519" ]; then
-    log "Génération clé SSH demo ($ANSIBLE_DIR/id_ed25519)"
-    ssh-keygen -t ed25519 -N "" -f "$ANSIBLE_DIR/id_ed25519" >/dev/null
+  mkdir -p "$(dirname "$SSH_KEY")"
+  chmod 700 "$(dirname "$SSH_KEY")"
+  if [ ! -f "$SSH_KEY" ]; then
+    log "Génération clé SSH lab ($SSH_KEY)"
+    umask 077
+    ssh-keygen -t ed25519 -N "" -f "$SSH_KEY" -C "homelab-ansible" >/dev/null
   fi
 }
 
 bootstrap_container() {
   local name="$1"
   local pubkey
-  pubkey="$(cat "$ANSIBLE_DIR/id_ed25519.pub")"
+pubkey="$(cat "$SSH_KEY.pub")"
 
   podman exec -i "$name" bash -s -- "$USER_NAME" "$pubkey" <<'BASH'
+
 set -euo pipefail
 USER_NAME="$1"
 PUBKEY="$2"
@@ -69,6 +73,7 @@ echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER_NAME"
 chmod 440 "/etc/sudoers.d/$USER_NAME"
 
 # SSH key
+
 install -d -m 700 -o "$USER_NAME" -g "$USER_NAME" "/home/$USER_NAME/.ssh"
 printf "%s\n" "$PUBKEY" > "/home/$USER_NAME/.ssh/authorized_keys"
 chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.ssh/authorized_keys"
@@ -92,11 +97,6 @@ inventory() {
 
   {
     echo "all:"
-    echo "  vars:"
-    echo "    ansible_user: ${USER_NAME}"
-    echo "    ansible_ssh_private_key_file: ${ANSIBLE_DIR}/id_ed25519"
-    echo "    ansible_python_interpreter: /usr/bin/python3"
-    echo "    ansible_ssh_common_args: \"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null\""
     echo "  hosts:"
 
     while read -r c; do
