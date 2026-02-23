@@ -1,0 +1,4 @@
+---
+nginx_demo_state: up   # up | down
+nginx_demo_listen_host: "127.0.0.1"
+nginx_demo_listen_port: 80

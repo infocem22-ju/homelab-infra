@@ -1,0 +1,21 @@
+all:
+  children:
+    common:
+      children:
+        webserver:
+          hosts:
+            jupi:
+
+        dbserver:
+          hosts:
+            GabeGear:
+
+    network:
+      hosts:
+        router_etage:
+
+    monitoring:
+      children:
+        webserver: {}
+        dbserver: {}
+        network: {}

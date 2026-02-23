@@ -1,0 +1,4 @@
+ansible_host: 192.168.50.50
+ansible_user: YOUR_USER
+
+var1: "webserver"

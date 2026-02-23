@@ -1,0 +1,9 @@
+---
+zbx_server_active: "host.containers.internal"
+zbx_host_metadata: "podman-demo"
+
+# Debian 12 + Zabbix 7.4 release pkg URL (tu l’as déjà corrigée)
+zbx_repo_deb_url: "https://repo.zabbix.com/zabbix/7.4/release/debian/pool/main/z/zabbix-release/zabbix-release_latest_7.4+debian12_all.deb"
+
+zbx_log_dir: "/var/log/zabbix"
+zbx_log_file: "/var/log/zabbix/zabbix_agent2.log"
