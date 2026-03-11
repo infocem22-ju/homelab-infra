@@ -18,4 +18,4 @@ EN PAUSE / PLUS TARD
 
 PROJETS PERSONNELS
 
-- Mettre en place un honeypot sur le Raspberry Pi
+- Mettre en place un reverse dns  sur le Raspberry Pi

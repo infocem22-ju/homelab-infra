@@ -1,5 +1,5 @@
 - name: Trace Ansible journalière (fichier fixe)
-  hosts: jupi
+  hosts: all
   become: yes
   gather_facts: yes
 
@@ -40,3 +40,10 @@
         group: root
         mode: "0644"
       when: stored_date != ansible_facts['date_time']['date']
+
+    - name: Maintenir une ligne d'info système dans trace
+      lineinfile:
+        path: "{{ stamp_file }}"
+        regexp: '^Host='
+        line: "Host={{ ansible_hostname }} | OS={{ ansible_distribution }} {{ ansible_distribution_version }} | Kernel={{ ansible_kernel }} | RAM={{ ansible_memtotal_mb }}MB"
+        create: yes

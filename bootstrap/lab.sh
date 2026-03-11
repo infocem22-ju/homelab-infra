@@ -5,7 +5,8 @@ PROJECT="${PROJECT:-demo}"
 IMAGE="${IMAGE:-debian:12}"
 USER_NAME="${USER_NAME:-ansible}"
 ANSIBLE_DIR="${ANSIBLE_DIR:-./ansible}"
-INV_FILE="${INV_FILE:-$ANSIBLE_DIR/inventory.yml}"
+INV_DIR="${INV_DIR:-$ANSIBLE_DIR/inventory}"
+INV_FILE="${INV_FILE:-$INV_DIR/inventory.yml}"
 NET_NAME="${NET_NAME:-${PROJECT}-net}"
 SSH_PORT_BASE="${SSH_PORT_BASE:-2220}"   # node-1 => 2221, node-2 => 2222, ...
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/homelab_ansible_ed25519}"
@@ -92,21 +93,34 @@ node_port() {
 }
 
 inventory() {
-  mkdir -p "$ANSIBLE_DIR"
+  mkdir -p "$(dirname "$INV_FILE")"
   log "Génération inventaire Ansible: $INV_FILE"
 
   {
     echo "all:"
-    echo "  hosts:"
+    echo "  children:"
+    echo "    demo_nodes:"
+    echo "      hosts:"
 
     while read -r c; do
       [ -z "$c" ] && continue
       idx="${c##*-node-}"
-      echo "    ${c}:"
-      echo "      ansible_host: 127.0.0.1"
-      echo "      ansible_port: $((SSH_PORT_BASE + idx))"
+      echo "        ${c}:"
+      echo "          ansible_host: 127.0.0.1"
+      echo "          ansible_port: $((SSH_PORT_BASE + idx))"
     done < <(lab_containers | sort)
   } > "$INV_FILE"
+}
+
+clean_known_hosts() {
+  log "Nettoyage des anciennes clés SSH du lab"
+
+  while read -r c; do
+    [ -z "$c" ] && continue
+    idx="${c##*-node-}"
+    port="$((SSH_PORT_BASE + idx))"
+    ssh-keygen -R "[127.0.0.1]:$port" >/dev/null 2>&1 || true
+  done < <(lab_containers)
 }
 
 status() {
@@ -125,6 +139,7 @@ up() {
   local n="${1:-2}"
   ensure_net
   ensure_ssh_key
+  clean_known_hosts
   log "Création de $n nœud(s) (image: $IMAGE) + ports SSH localhost"
 
   for i in $(seq 1 "$n"); do
