@@ -67,6 +67,41 @@ homelab-infra
 
 
 ---
+## Topologie actuelle du homelab
+
+```text
+[Workstation principale]
+  ├─ Ansible
+  │   ├─ inventory
+  │   ├─ group_vars
+  │   ├─ playbooks
+  │   └─ roles
+  │
+  ├─ Podman / Lab containers
+  │   ├─ demo-node-1 (SSH localhost:2221)
+  │   └─ demo-node-2 (SSH localhost:2222)
+  │
+  ├─ Monitoring
+  │   └─ Zabbix
+  │
+  └─ IA locale
+      ├─ Ollama
+      └─ Open WebUI
+
+## Schéma du lab
+
+```mermaid
+flowchart TD
+    A[Workstation principale] --> B[Ansible]
+    A --> C[Podman / Lab containers]
+    A --> D[Monitoring Zabbix]
+    A --> E[IA locale : Ollama / Open WebUI]
+
+    C --> F[demo-node-1<br/>SSH localhost:2221]
+    C --> G[demo-node-2<br/>SSH localhost:2222]
+
+    C -. évolution .-> H[VM]
+    H -. plus tard .-> I[Kubernetes]
 
 # Roadmap
 
