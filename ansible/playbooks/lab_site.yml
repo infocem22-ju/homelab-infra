@@ -1,0 +1,4 @@
+---
+- import_playbook: 00_connectivity_test.yml
+- import_playbook: 01_host_trace.yml
+- import_playbook: 20_zabbix_agent2.yml
