@@ -137,14 +137,20 @@ status() {
 
 up() {
   local n="${1:-2}"
+
   ensure_net
   ensure_ssh_key
   clean_known_hosts
-  log "Création de $n nœud(s) (image: $IMAGE) + ports SSH localhost"
+
+  log "Création de $n nœud(s) (image: $IMAGE)"
+  log "SSH exposé en localhost ; HTTP exposé sur le LAN pour ${PROJECT}-node-1"
 
   for i in $(seq 1 "$n"); do
     local name="${PROJECT}-node-${i}"
     local ssh_port
+    local extra_ports=()
+    local port_msg="ssh 127.0.0.1"
+
     ssh_port="$(node_port "$i")"
 
     if podman container exists "$name" >/dev/null 2>&1; then
@@ -152,12 +158,21 @@ up() {
       continue
     fi
 
-    log "Création $name (ssh 127.0.0.1:${ssh_port} -> 22)"
+    if [ "$i" -eq 1 ]; then
+      extra_ports+=(-p "0.0.0.0:8080:80")
+      port_msg="${port_msg}:${ssh_port} -> 22 ; http 0.0.0.0:8080 -> 80"
+    else
+      port_msg="${port_msg}:${ssh_port} -> 22"
+    fi
+
+    log "Création $name (${port_msg})"
+
     podman run -d \
       --name "$name" \
       --label "homelab.project=${PROJECT}" \
       --network "$NET_NAME" \
       -p "127.0.0.1:${ssh_port}:22" \
+      "${extra_ports[@]}" \
       "$IMAGE" \
       bash -lc "sleep infinity" >/dev/null
 

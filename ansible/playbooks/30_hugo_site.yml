@@ -1,0 +1,58 @@
+---
+- name: Deploy Hugo static site
+  hosts: demo-node-1
+  become: true
+
+  vars:
+    site_src: "{{ playbook_dir }}/../../homelab-site/public/"
+    site_dest: "/var/www/homelab-site"
+
+  tasks:
+
+    - name: Create destination directory
+      file:
+        path: "{{ site_dest }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Copy Hugo site
+      copy:
+        src: "{{ site_src }}"
+        dest: "{{ site_dest }}"
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Configure nginx site
+      copy:
+        dest: /etc/nginx/sites-available/homelab
+        content: |
+          server {
+              listen 80;
+              server_name _;
+              root {{ site_dest }};
+              index index.html;
+
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+          }
+
+    - name: Enable site
+      file:
+        src: /etc/nginx/sites-available/homelab
+        dest: /etc/nginx/sites-enabled/homelab
+        state: link
+        force: true
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
