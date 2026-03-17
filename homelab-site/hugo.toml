@@ -1,0 +1,4 @@
+baseURL = "http://localhost"
+languageCode = "fr"
+title = "Homelab Julien"
+theme = "ananke"
