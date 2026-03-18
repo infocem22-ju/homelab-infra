@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-BASE=BASE_PATH
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."
 OLLAMA_COMPOSE=$BASE/ollama/docker-compose.yml
 ZABBIX_COMPOSE=$BASE/zabbix/docker-compose.yml
 LAB_SCRIPT=$BASE/bootstrap/lab.sh
