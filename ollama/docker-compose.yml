@@ -22,7 +22,7 @@ services:
     volumes:
       - open-webui:/app/backend/data
       - ./knowledge:/knowledge:ro
-      - BASE_PATH/ansible:/sources/ansible:ro
+      - ../ansible:/sources/ansible:ro
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
