@@ -16,4 +16,4 @@ ollama/data/
 ollama/ollama-data/
 
 # --- Local markers ---
-.ZABBIX_FIABLE
+.ZABBIX_FIABLE# --- Hugo build output ---\nhomelab-site/public/
