@@ -1,7 +1,0 @@
-- name: Mon Playbook !!
-  hosts: all
-  become_user: yes
-  tasks:
-  - name: je debug
-    debug:
-      msg: "{{ var1 }}"

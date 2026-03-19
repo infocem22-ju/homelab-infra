@@ -31,3 +31,5 @@ Ce lab sert de terrain d’expérimentation pour :
 Ce site est généré avec Hugo puis déployé automatiquement sur un node web via Ansible.
 
 Il fait partie du homelab lui-même : il sert à la fois de vitrine, de documentation synthétique et de démonstration d’un workflow d’infrastructure simple et reproductible.
+
+[→ Voir le dépôt sur GitHub](https://github.com/infocem22-ju/homelab-infra)
