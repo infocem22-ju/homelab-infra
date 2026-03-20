@@ -1,204 +1,116 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."
-OLLAMA_COMPOSE=$BASE/ollama/docker-compose.yml
-ZABBIX_COMPOSE=$BASE/zabbix/docker-compose.yml
-LAB_SCRIPT=$BASE/bootstrap/lab.sh
+OLLAMA_COMPOSE="$BASE/ollama/docker-compose.yml"
+ZABBIX_COMPOSE="$BASE/zabbix/docker-compose.yml"
+LAB_SCRIPT="$BASE/bootstrap/lab.sh"
+PLAYBOOK_SITE="$BASE/ansible/playbooks/lab_site.yml"
 NODES_COUNT=2
 
-# ---------------------------------------------------------------------------
-# Utilitaires
-# ---------------------------------------------------------------------------
-
-pause_end() {
-    echo
-    read -rp "Appuie sur Entrée pour continuer..."
-}
-
-compose_exists() {
-    local compose_file=$1
-    [[ -f "$compose_file" ]]
-}
+TITLE="Homelab Control"
 
 # ---------------------------------------------------------------------------
-# Fonctions compose
+# Statut
 # ---------------------------------------------------------------------------
+cd "$BASE"  
 
-compose_running_count() {
-    local compose_file=$1
 
-    if ! compose_exists "$compose_file"; then
-        echo 0
-        return 1
-    fi
-
-    docker compose -f "$compose_file" ps --format '{{.State}}' 2>/dev/null \
-        | grep -c '^running$' || echo 0
+compose_running() {
+    local f="$1"
+    [[ -f "$f" ]] || { echo "introuvable"; return; }
+    local n
+    n=$(docker compose -f "$f" ps --format '{{.State}}' 2>/dev/null | grep -c '^running$' || true)
+    [[ "$n" -gt 0 ]] && echo "✅ actif ($n)" || echo "⛔ arrêté"
 }
 
-compose_total_count() {
-    local compose_file=$1
-
-    if ! compose_exists "$compose_file"; then
-        echo 0
-        return 1
-    fi
-
-    local total
-    total=$(docker compose -f "$compose_file" ps --format '{{.Name}}' 2>/dev/null | grep -c '.')
-    echo "$total"
+nodes_running() {
+    local n
+    n=$(podman ps --filter "label=homelab.project=demo" --format '{{.Names}}' 2>/dev/null | wc -l)
+    [[ "$n" -gt 0 ]] && echo "✅ $n node(s)" || echo "⛔ arrêté"
 }
 
-compose_status() {
-    local name=$1
-    local compose_file=$2
-
-    if ! compose_exists "$compose_file"; then
-        echo "[KO] $name : compose introuvable ($compose_file)"
-        return
-    fi
-
-    local total running
-    total=$(compose_total_count "$compose_file")
-    running=$(compose_running_count "$compose_file")
-
-    if [[ "$total" -eq 0 ]]; then
-        echo "[--] $name : arrêté"
-    elif [[ "$running" -gt 0 ]]; then
-        echo "[OK] $name : $running/$total container(s) actif(s)"
-    else
-        echo "[--] $name : présent mais arrêté ($total container(s))"
-    fi
-}
-
-compose_up() {
-    local name=$1
-    local compose_file=$2
-
-    if ! compose_exists "$compose_file"; then
-        echo "Compose introuvable pour $name : $compose_file"
-        return 1
-    fi
-
-    echo "Démarrage de $name..."
-    docker compose -f "$compose_file" up -d
-}
-
-compose_down() {
-    local name=$1
-    local compose_file=$2
-
-    if ! compose_exists "$compose_file"; then
-        echo "Compose introuvable pour $name : $compose_file"
-        return 1
-    fi
-
-    echo "Arrêt de $name..."
-    docker compose -f "$compose_file" down
-}
-
-compose_restart() {
-    local name=$1
-    local compose_file=$2
-
-    if ! compose_exists "$compose_file"; then
-        echo "Compose introuvable pour $name : $compose_file"
-        return 1
-    fi
-
-    echo "Redémarrage de $name..."
-    docker compose -f "$compose_file" down
-    docker compose -f "$compose_file" up -d
+build_status() {
+    echo "Ollama  : $(compose_running "$OLLAMA_COMPOSE")"
+    echo "Zabbix  : $(compose_running "$ZABBIX_COMPOSE")"
+    echo "Nodes   : $(nodes_running)"
 }
 
 # ---------------------------------------------------------------------------
-# Fonctions nodes
+# Actions
 # ---------------------------------------------------------------------------
 
-nodes_status() {
-    if [[ ! -f "$LAB_SCRIPT" ]]; then
-        echo "[KO] Nodes lab : script introuvable ($LAB_SCRIPT)"
-        return 1
-    fi
+run_action() {
+    local label="$1"; shift
+    local cmd=("$@")
 
-    echo "Statut des nodes :"
-    bash "$LAB_SCRIPT" status
+    zenity --info \
+        --title="$TITLE" \
+        --text="⏳ $label en cours…" \
+        --no-wrap \
+        --timeout=1 2>/dev/null || true
+
+    "${cmd[@]}" >/dev/null 2>&1 && \
+        zenity --info --title="$TITLE" --text="✅ $label : succès" --no-wrap 2>/dev/null || \
+        zenity --error --title="$TITLE" --text="❌ $label : échec" --no-wrap 2>/dev/null
+    true
 }
 
-nodes_up() {
-    if [[ ! -f "$LAB_SCRIPT" ]]; then
-        echo "Script nodes introuvable : $LAB_SCRIPT"
-        return 1
-    fi
+run_ansible() {
+    local label="$1"
+    local playbook="$2"
 
-    echo "Démarrage de $NODES_COUNT node(s)..."
-    bash "$LAB_SCRIPT" up "$NODES_COUNT"
+    run_action "$label" \
+        ansible-playbook -i "$BASE/ansible/inventory/inventory.yml" "$playbook"
 }
 
-nodes_down() {
-    if [[ ! -f "$LAB_SCRIPT" ]]; then
-        echo "Script nodes introuvable : $LAB_SCRIPT"
-        return 1
-    fi
+stop_all() {
+    zenity --question \
+        --title="$TITLE" \
+        --text="Arrêter Ollama, Zabbix et les nodes ?" \
+        --no-wrap 2>/dev/null || return
 
-    echo "Arrêt / suppression des nodes..."
-    bash "$LAB_SCRIPT" down
-}
+    docker compose -f "$OLLAMA_COMPOSE" down >/dev/null 2>&1 || true
+    docker compose -f "$ZABBIX_COMPOSE" down >/dev/null 2>&1 || true
+    bash "$LAB_SCRIPT" down >/dev/null 2>&1 || true
 
-# ---------------------------------------------------------------------------
-# Affichage global
-# ---------------------------------------------------------------------------
-
-show_global_status() {
-    echo
-    echo "===== État du homelab ====="
-    compose_status "Ollama" "$OLLAMA_COMPOSE"
-    compose_status "Zabbix" "$ZABBIX_COMPOSE"
-    echo
-    nodes_status
-    echo "==========================="
-    echo
+    zenity --info --title="$TITLE" --text="✅ Tout arrêté" --no-wrap 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
-# Boucle principale
+# Menu principal
 # ---------------------------------------------------------------------------
 
 while true; do
-    clear
-    show_global_status
+    STATUS="$(build_status)"
 
-    echo "Menu :"
-    echo "  1) Démarrer Ollama"
-    echo "  2) Arrêter Ollama"
-    echo "  3) Redémarrer Ollama"
-    echo
-    echo "  4) Démarrer Zabbix"
-    echo "  5) Arrêter Zabbix"
-    echo "  6) Redémarrer Zabbix"
-    echo
-    echo "  7) Démarrer les nodes ($NODES_COUNT)"
-    echo "  8) Voir le statut des nodes"
-    echo "  9) Arrêter les nodes"
-    echo
-    echo "  s) Rafraîchir l'état"
-    echo "  q) Quitter"
-    echo
+    CHOICE=$(zenity --list \
+        --title="$TITLE" \
+        --text="$STATUS\n\nChoisir une action :" \
+        --column="Action" \
+        --width=380 --height=460 \
+        --hide-header \
+        2>/dev/null \
+        "▶  Démarrer Ollama" \
+        "■  Arrêter Ollama" \
+        "▶  Démarrer Zabbix" \
+        "■  Arrêter Zabbix" \
+        "▶  Démarrer les nodes" \
+        "■  Arrêter les nodes" \
+        "🚀 Déployer site Hugo" \
+        "⏹  Tout arrêter" \
+        "⏻  Quitter" \
+    ) || break
 
-    read -rp "Choix : " choice
-
-    case "$choice" in
-        1) compose_up      "Ollama" "$OLLAMA_COMPOSE" ; pause_end ;;
-        2) compose_down    "Ollama" "$OLLAMA_COMPOSE" ; pause_end ;;
-        3) compose_restart "Ollama" "$OLLAMA_COMPOSE" ; pause_end ;;
-        4) compose_up      "Zabbix" "$ZABBIX_COMPOSE" ; pause_end ;;
-        5) compose_down    "Zabbix" "$ZABBIX_COMPOSE" ; pause_end ;;
-        6) compose_restart "Zabbix" "$ZABBIX_COMPOSE" ; pause_end ;;
-        7) nodes_up   ; pause_end ;;
-        8) nodes_status ; pause_end ;;
-        9) nodes_down ; pause_end ;;
-        s|S) continue ;;
-        q|Q) exit 0 ;;
-        *) echo "Choix invalide." ; pause_end ;;
+    case "$CHOICE" in
+        "▶  Démarrer Ollama")    run_action "Ollama start"  docker compose -f "$OLLAMA_COMPOSE" up -d ;;
+        "■  Arrêter Ollama")     run_action "Ollama stop"   docker compose -f "$OLLAMA_COMPOSE" down ;;
+        "▶  Démarrer Zabbix")    run_action "Zabbix start"  docker compose -f "$ZABBIX_COMPOSE" up -d ;;
+        "■  Arrêter Zabbix")     run_action "Zabbix stop"   docker compose -f "$ZABBIX_COMPOSE" down ;;
+        "▶  Démarrer les nodes") run_action "Nodes up"      bash "$LAB_SCRIPT" up "$NODES_COUNT" ;;
+        "■  Arrêter les nodes")  run_action "Nodes down"    bash "$LAB_SCRIPT" down ;;
+        "🚀 Déployer site Hugo") run_ansible "Déploiement Hugo" "$PLAYBOOK_SITE" ;;
+        "⏹  Tout arrêter") stop_all ;;
+        "⏻  Quitter")           break ;;
     esac
 done
