@@ -81,6 +81,7 @@ Objectifs :
 ## En pause / plus tard
 
 - Mettre en place Semaphore pour orchestrer Ansible
+- Github Action
 - Apprendre les bases de Grafana
 - Installer HashiCorp Vault
 - Expérimenter NixOS
@@ -95,9 +96,9 @@ Objectifs :
 
 ## Prochaine session
 
-- finaliser le README
 - tester playbook bootstrap
 - préparer infrastructure VM pour le lab
+- Passer en inventaire dynamique avec le module zabbix
 
 Vendredi : session homelab "fun / exploration"
 Pas d'objectif lourd, juste tester et découvrir.
