@@ -44,4 +44,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  zabbix_pgdata:
+ zabbix_pgdata:
+   external : true
+   name: homelab-infra_zabbix_pgdata
