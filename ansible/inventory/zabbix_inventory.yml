@@ -1,0 +1,19 @@
+plugin: community.zabbix.zabbix_inventory
+server_url: "http://192.168.50.6:8081"
+login_user: "Admin"
+login_password: "zabbix"
+validate_certs: false
+
+host_zapi_query:
+  selectInterfaces:
+    - ip
+    - type
+    - main
+
+compose:
+  ansible_host: zbx_interfaces[0].ip
+
+keyed_groups:
+  - key: host_groups
+    prefix: ""
+    separator: ""
