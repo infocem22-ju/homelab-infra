@@ -1,0 +1,3 @@
+zbx_server_active: "192.168.50.6"
+zbx_host_metadata: "lab-vm"
+zbx_use_systemd: !!bool true

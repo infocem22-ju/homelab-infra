@@ -37,7 +37,6 @@
     dest: /etc/zabbix/zabbix_agent2.conf
     mode: "0644"
 
-# Dans tes conteneurs: pas de systemd => on gère le process à la main
 - name: Restart zabbix_agent2 (no systemd)
   ansible.builtin.shell: |
     set -e
@@ -46,6 +45,20 @@
   args:
     executable: /bin/bash
   changed_when: true
+  when: not (zbx_use_systemd | default(false))
+
+- name: Clean up stale PID file (if any)
+  ansible.builtin.file:
+    path: /tmp/zabbix_agent2.pid
+    state: absent
+  when: zbx_use_systemd | default(false)
+
+- name: Enable and start zabbix-agent2 (systemd)
+  ansible.builtin.systemd:
+    name: zabbix-agent2
+    enabled: true
+    state: restarted
+  when: zbx_use_systemd | default(false)
 
 - name: Wait for agent2 to listen on 10050 locally
   ansible.builtin.wait_for:

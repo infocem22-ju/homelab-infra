@@ -7,3 +7,4 @@ zbx_repo_deb_url: "https://repo.zabbix.com/zabbix/7.4/release/debian/pool/main/z
 
 zbx_log_dir: "/var/log/zabbix"
 zbx_log_file: "/var/log/zabbix/zabbix_agent2.log"
+zbx_use_systemd: false
