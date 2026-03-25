@@ -8,9 +8,9 @@
 # Pour setup : copier zabbix_inventory.yml.example et renseigner les credentials.
 
 plugin: community.zabbix.zabbix_inventory
-server_url: "http://192.168.50.6:8081"
-login_user: "Admin"
-login_password: "zabbix"
+server_url: "http://ZABBIX_IP:PORT"
+login_user: "ZABBIX_USER"
+login_password: "ZABBIX_PASSWORD"
 validate_certs: false
 
 host_zapi_query:
