@@ -1,0 +1,17 @@
+name: Hello World
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  hello:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Hello
+        run: echo "Runner opérationnel sur $(hostname)"
