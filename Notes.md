@@ -19,6 +19,19 @@ Comprendre le fonctionnement réel d'Ansible :
 
 ---
 
+### CI/CD
+
+- Self-hosted runner GitHub Actions en place
+- Workflow déclenché sur push dans `ansible/` ou manuellement
+
+Ce que fait le pipeline :
+- clone le repo
+- génère le site Hugo
+- vérifie que les containers Podman sont actifs
+- lance le playbook Ansible
+
+---
+
 ### Monitoring
 
 - Mise en place d'un monitoring Zabbix propre
@@ -97,10 +110,6 @@ Objectifs :
 
 - tester playbook bootstrap
 - stabiliser inventory dynamique VMs (Zabbix)
-- GitHub Actions : déclencher un playbook sur push
-
-Vendredi : session homelab "fun / exploration"
-Pas d'objectif lourd, juste tester et découvrir.
 
 Le bouton de bureau sert au contrôle rapide et à la visibilité immédiate.
 Le monitoring détaillé reste le rôle de Zabbix.

@@ -254,6 +254,22 @@ flowchart TD
 ```
 
 ---
+## CI/CD
+
+Ce projet utilise GitHub Actions avec un self-hosted runner.
+
+Le workflow se déclenche automatiquement sur push si des fichiers `ansible/` sont modifiés, ou manuellement via l'interface GitHub.
+
+### Ce que fait le pipeline
+
+1. Clone le repo
+2. Génère le site Hugo
+3. Vérifie que les containers Podman sont actifs
+4. Lance le playbook Ansible
+
+### Prérequis
+
+Le self-hosted runner doit tourner sur la workstation et les containers Podman doivent être up pour que le déploiement aboutisse.
 
 ## Roadmap
 
