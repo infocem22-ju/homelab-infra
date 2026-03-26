@@ -16,6 +16,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Build Hugo site
+        run: |
+          cd homelab-site
+          hugo
+
       - name: Vérifier les containers Podman
         run: |
           COUNT=$(podman ps --filter "label=homelab.project=demo" --format '{{.Names}}' | wc -l)
