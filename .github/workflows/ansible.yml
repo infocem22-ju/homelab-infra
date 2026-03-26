@@ -25,7 +25,7 @@ jobs:
           fi
           echo "$COUNT container(s) actif(s)"
 
-      - name: name: Run playbook
+      - name: Run playbook
         run: |
           ansible-playbook ansible/playbooks/lab_site.yml \
             --private-key ~/.ssh/homelab_ansible_ed25519 \
