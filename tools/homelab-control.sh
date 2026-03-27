@@ -6,6 +6,9 @@ OLLAMA_COMPOSE="$BASE/ollama/docker-compose.yml"
 ZABBIX_COMPOSE="$BASE/zabbix/docker-compose.yml"
 LAB_SCRIPT="$BASE/bootstrap/lab.sh"
 PLAYBOOK_SITE="$BASE/ansible/playbooks/lab_site.yml"
+VM_SCRIPT="$BASE/bootstrap/vm.sh"
+VM_COUNT=1
+RUNNER_DIR="$HOME/actions-runner"
 NODES_COUNT=2
 
 TITLE="Homelab Control"
@@ -30,10 +33,17 @@ nodes_running() {
     [[ "$n" -gt 0 ]] && echo "✅ $n node(s)" || echo "⛔ arrêté"
 }
 
+vms_running() {
+    local n
+    n=$(virsh --connect qemu:///system list --name 2>/dev/null | grep -c "^lab-vm-" || true)
+    [[ "$n" -gt 0 ]] && echo "✅ $n VM(s)" || echo "⛔ arrêté"
+}
+
 build_status() {
     echo "Ollama  : $(compose_running "$OLLAMA_COMPOSE")"
     echo "Zabbix  : $(compose_running "$ZABBIX_COMPOSE")"
     echo "Nodes   : $(nodes_running)"
+    echo "VMs     : $(vms_running)"
 }
 
 # ---------------------------------------------------------------------------
@@ -67,13 +77,14 @@ run_ansible() {
 stop_all() {
     zenity --question \
         --title="$TITLE" \
-        --text="Arrêter Ollama, Zabbix et les nodes ?" \
+        --text="Arrêter Ollama, Zabbix, les nodes, les VM et le runner ?" \
         --no-wrap 2>/dev/null || return
 
     docker compose -f "$OLLAMA_COMPOSE" down >/dev/null 2>&1 || true
     docker compose -f "$ZABBIX_COMPOSE" down >/dev/null 2>&1 || true
     bash "$LAB_SCRIPT" down >/dev/null 2>&1 || true
-
+    sudo bash "$VM_SCRIPT" down >/dev/null 2>&1 || true
+    pkill -f 'Runner.Listener' >/dev/null 2>&1 || true
     zenity --info --title="$TITLE" --text="✅ Tout arrêté" --no-wrap 2>/dev/null || true
 }
 
@@ -98,6 +109,10 @@ while true; do
         "▶  Démarrer les nodes" \
         "■  Arrêter les nodes" \
         "🚀 Déployer site Hugo" \
+        "▶  Démarrer les VMs" \
+        "■  Arrêter les VMs" \
+        "▶  Démarrer runner GitHub" \
+        "■  Arrêter runner GitHub" \
         "⏹  Tout arrêter" \
         "⏻  Quitter" \
     ) || break
@@ -110,6 +125,12 @@ while true; do
         "▶  Démarrer les nodes") run_action "Nodes up"      bash "$LAB_SCRIPT" up "$NODES_COUNT" ;;
         "■  Arrêter les nodes")  run_action "Nodes down"    bash "$LAB_SCRIPT" down ;;
         "🚀 Déployer site Hugo") run_ansible "Déploiement Hugo" "$PLAYBOOK_SITE" ;;
+        "▶  Démarrer les VMs")      run_action "VMs up"   sudo bash "$VM_SCRIPT" up "$VM_COUNT" ;;
+        "■  Arrêter les VMs")       run_action "VMs down" sudo bash "$VM_SCRIPT" down ;;
+        "▶  Démarrer runner GitHub") bash -c "cd '$RUNNER_DIR' && nohup ./run.sh >/tmp/runner.log 2>&1 &"
+                                     zenity --info --title="$TITLE" --text="✅ Runner démarré" --no-wrap 2>/dev/null || true ;;
+        "■  Arrêter runner GitHub")  bash -c "cd '$RUNNER_DIR' && ./config.sh remove --token '' 2>/dev/null; pkill -f 'Runner.Listener' || true"
+                                     zenity --info --title="$TITLE" --text="✅ Runner arrêté" --no-wrap 2>/dev/null || true ;;
         "⏹  Tout arrêter") stop_all ;;
         "⏻  Quitter")           break ;;
     esac
