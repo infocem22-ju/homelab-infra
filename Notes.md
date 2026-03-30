@@ -105,6 +105,22 @@ Objectifs :
 - Mettre en place un reverse DNS sur le Raspberry Pi
 
 ---
+## Exploration / Culture technique
+
+### Proxmox VE
+Exploré lors d'une candidature avec Proxmox dans la stack.
+
+Acquis :
+- Architecture : hyperviseur type 1, KVM + LXC + interface web
+- Différence Proxmox vs KVM/libvirt nu vs Kubernetes
+- Concurrents : VMware vSphere (migration post-Broadcom), XCP-ng, Hyper-V
+- Installation en VM nested sur libvirt
+- Interface web : création VM, snapshots, backup, shell intégré
+- Monitoring : zabbix-agent2 + template Proxmox VE by HTTP (API port 8006)
+- Automatisation : collection `community.proxmox` (proxmox_kvm, proxmox_snap...)
+
+---
+
 
 ## Prochaine session
 
