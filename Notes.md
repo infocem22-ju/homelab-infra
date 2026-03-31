@@ -120,12 +120,27 @@ Acquis :
 - Automatisation : collection `community.proxmox` (proxmox_kvm, proxmox_snap...)
 
 ---
+## Session 31 mars 2026
 
+### Accompli
 
-## Prochaine session
+- Création template Proxmox (debian-12-genericcloud + cloud-init)
+- Provisioning VMs via Ansible (community.proxmox) :
+  - clone depuis template
+  - IP fixe via cloud-init (lab-vm-1: 192.168.122.101, lab-vm-2: 192.168.122.102)
+  - démarrage automatique
+- Bootstrap VMs : déploiement zabbix-agent2 via systemd
+- Inventory dynamique Zabbix opérationnel avec bonnes IPs
+- Workflow complet : Ansible → Proxmox → Zabbix → inventory dynamique
 
-- tester playbook bootstrap
-- stabiliser inventory dynamique VMs (Zabbix)
+### Prochaine session
 
+- Créer un groupe Zabbix dédié `lab_vms` pour filtrer l'inventory dynamique
+- Supprimer l'inventory statique pour les VMs (tout passer par Zabbix)
+- Explorer un playbook qui utilise uniquement zabbix_inventory.yml
+- Chaîner proxmox_provision_vms.yml et bootstrap_lab_vms.yml
+  (soit un playbook master, soit un import_playbook)
+  
+---
 Le bouton de bureau sert au contrôle rapide et à la visibilité immédiate.
 Le monitoring détaillé reste le rôle de Zabbix.

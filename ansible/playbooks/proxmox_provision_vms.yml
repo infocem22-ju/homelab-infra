@@ -1,0 +1,59 @@
+---
+- name: Provision VMs sur Proxmox
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    - "{{ playbook_dir }}/../../inventory/group_vars/all/vault.yml"
+
+  vars:
+    proxmox_node: proxmox-lab
+    vms:
+      - name: lab-vm-1
+        newid: 101
+        ip: 192.168.122.101/24
+      - name: lab-vm-2
+        newid: 102
+        ip: 192.168.122.102/24
+
+  tasks:
+    - name: Cloner le template
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ vault_proxmox_host }}"
+        api_user: "{{ vault_proxmox_user }}"
+        api_token_id: "{{ vault_proxmox_token_id }}"
+        api_token_secret: "{{ vault_proxmox_token_secret }}"
+        node: "{{ proxmox_node }}"
+        clone: lab-template
+        vmid: 9000
+        newid: "{{ item.newid }}"
+        name: "{{ item.name }}"
+        full: true
+        storage: local-lvm
+        state: present
+      loop: "{{ vms }}"
+
+    - name: Configurer cloud-init (IP fixe + gateway)
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ vault_proxmox_host }}"
+        api_user: "{{ vault_proxmox_user }}"
+        api_token_id: "{{ vault_proxmox_token_id }}"
+        api_token_secret: "{{ vault_proxmox_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        ipconfig:
+          ipconfig0: "ip={{ item.ip }},gw=192.168.122.1"
+        state: present
+        update: true
+      loop: "{{ vms }}"
+
+    - name: Démarrer les VMs
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ vault_proxmox_host }}"
+        api_user: "{{ vault_proxmox_user }}"
+        api_token_id: "{{ vault_proxmox_token_id }}"
+        api_token_secret: "{{ vault_proxmox_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        state: started
+      loop: "{{ vms }}"

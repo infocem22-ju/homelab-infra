@@ -1,0 +1,8 @@
+---
+- name: Bootstrap VMs lab
+  hosts: lab_vms
+  become: true
+  gather_facts: true
+
+  roles:
+    - zabbix_agent2
