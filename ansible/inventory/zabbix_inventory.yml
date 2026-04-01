@@ -18,6 +18,7 @@ host_zapi_query:
     - ip
     - type
     - main
+  groupids: ["27"]
 
 compose:
   ansible_host: zbx_interfaces[0].ip

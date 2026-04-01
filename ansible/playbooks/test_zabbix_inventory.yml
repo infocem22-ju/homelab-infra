@@ -1,0 +1,11 @@
+- name: Test connectivité VMs via inventory Zabbix
+  hosts: ungrouped
+  become: yes
+  gather_facts: yes
+  tasks:
+    - name: Ping
+      ping:
+
+    - name: Afficher infos host
+      debug:
+        msg: "{{ inventory_hostname }} | {{ ansible_distribution }} {{ ansible_distribution_version }} | IP: {{ ansible_host }}"

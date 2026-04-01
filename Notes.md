@@ -48,12 +48,12 @@ Objectifs :
 ### Infrastructure du lab
 
 - Stabiliser le script `lab.sh`
-- VM disponibles via `vm.sh` — inventory à stabiliser
+- ~~VM disponibles via `vm.sh` KVM~~ → **migré vers Proxmox**
 - Préparer une architecture extensible (containers / VM / machines physiques)
 
-Prochaine évolution :
+Évolution actuelle :
 
-Containers → **VM**
+Containers + **Proxmox** (VMs avec IPs fixes via cloud-init)
 
 ---
 
@@ -81,7 +81,7 @@ Comprendre l'intégration d'un LLM dans un environnement auto-hébergé.
 
 ### Kubernetes
 
-À explorer après l'introduction des VM dans le lab.
+À explorer après consolidation de l'infra Proxmox.
 
 Objectifs :
 
@@ -105,10 +105,10 @@ Objectifs :
 - Mettre en place un reverse DNS sur le Raspberry Pi
 
 ---
+
 ## Exploration / Culture technique
 
 ### Proxmox VE
-Exploré lors d'une candidature avec Proxmox dans la stack.
 
 Acquis :
 - Architecture : hyperviseur type 1, KVM + LXC + interface web
@@ -118,8 +118,11 @@ Acquis :
 - Interface web : création VM, snapshots, backup, shell intégré
 - Monitoring : zabbix-agent2 + template Proxmox VE by HTTP (API port 8006)
 - Automatisation : collection `community.proxmox` (proxmox_kvm, proxmox_snap...)
+- Template Debian 12 cloud-init opérationnel
+- Provisioning VMs via Ansible avec IPs fixes stables
 
 ---
+
 ## Session 31 mars 2026
 
 ### Accompli
@@ -133,14 +136,25 @@ Acquis :
 - Inventory dynamique Zabbix opérationnel avec bonnes IPs
 - Workflow complet : Ansible → Proxmox → Zabbix → inventory dynamique
 
+---
+
+## Session 1er avril 2026
+
+### Accompli
+
+- Groupe `Lab VMs` dans Zabbix confirmé opérationnel (auto-register)
+- Filtre `groupids: ["27"]` ajouté dans `zabbix_inventory.yml` → inventory limité aux VMs du lab
+- Playbook `test_zabbix_inventory.yml` validé : connectivité OK sur lab-vm-1 et lab-vm-2 via inventory Zabbix uniquement
+
 ### Prochaine session
 
-- Créer un groupe Zabbix dédié `lab_vms` pour filtrer l'inventory dynamique
-- Supprimer l'inventory statique pour les VMs (tout passer par Zabbix)
-- Explorer un playbook qui utilise uniquement zabbix_inventory.yml
-- Chaîner proxmox_provision_vms.yml et bootstrap_lab_vms.yml
-  (soit un playbook master, soit un import_playbook)
-  
+- Fusionner les deux inventories dans `ansible.cfg` (containers via `inventory.yml` + VMs via `zabbix_inventory.yml`)
+- Supprimer l'inventory statique pour les VMs
+- Chaîner `proxmox_provision_vms.yml` et `bootstrap_lab_vms.yml` (playbook master ou `import_playbook`)
+- Régler les credentials Proxmox en clair dans les hostvars Zabbix
+- Intégrer le contrôle Proxmox dans `homelab-control.sh`
+
 ---
+
 Le bouton de bureau sert au contrôle rapide et à la visibilité immédiate.
 Le monitoring détaillé reste le rôle de Zabbix.
