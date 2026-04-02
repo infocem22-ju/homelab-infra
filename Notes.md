@@ -146,14 +146,22 @@ Acquis :
 - Filtre `groupids: ["27"]` ajouté dans `zabbix_inventory.yml` → inventory limité aux VMs du lab
 - Playbook `test_zabbix_inventory.yml` validé : connectivité OK sur lab-vm-1 et lab-vm-2 via inventory Zabbix uniquement
 
-### Prochaine session
+## Session 2 avril 2026
 
-- Fusionner les deux inventories dans `ansible.cfg` (containers via `inventory.yml` + VMs via `zabbix_inventory.yml`)
-- Supprimer l'inventory statique pour les VMs
-- Chaîner `proxmox_provision_vms.yml` et `bootstrap_lab_vms.yml` (playbook master ou `import_playbook`)
-- Régler les credentials Proxmox en clair dans les hostvars Zabbix
-- Intégrer le contrôle Proxmox dans `homelab-control.sh`
+### Accompli
+- Nettoyage ansible/ : suppression fichiers .old, test_zabbix_inventory.yml
+- Fusion group_vars/lab_vms.yml dans group_vars/lab_vms/vars.yml
+- Confirmation que les deux inventories sont déjà fusionnés dans ansible.cfg
+- Création playbook master provision_and_bootstrap.yml (chaînage proxmox_provision_vms + wait_for_connection + bootstrap_lab_vms)
+- Investigation credentials Proxmox dans hostvars Zabbix → pas de vrai problème, variables chiffrées dans le vault, pas stockées dans Zabbix
 
+### Prochaine session (mardi 7 avril)
+- Diagnostic système sur les VMs : CPU, RAM, I/O via outils système + Zabbix
+- Objectif : construire une méthodologie de diagnostic incident (serveur qui lag → trouver la cause)
+
+### Vendredi 4 avril
+- homelab-control.sh : intégrer le contrôle Proxmo
+- RAG Ollama si le script est expédié rapidement
 ---
 
 Le bouton de bureau sert au contrôle rapide et à la visibilité immédiate.
