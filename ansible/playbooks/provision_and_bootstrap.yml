@@ -1,0 +1,13 @@
+---
+- import_playbook: proxmox_provision_vms.yml
+
+- name: Attendre que les VMs soient joignables
+  hosts: lab_vms
+  gather_facts: false
+  tasks:
+    - name: Attendre SSH
+      wait_for_connection:
+        delay: 5
+        timeout: 60
+
+- import_playbook: bootstrap_lab_vms.yml
