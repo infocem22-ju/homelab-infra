@@ -3,9 +3,6 @@
   hosts: localhost
   gather_facts: false
 
-  vars_files:
-    - "{{ playbook_dir }}/../../inventory/group_vars/all/vault.yml"
-
   vars:
     proxmox_node: proxmox-lab
     vms:

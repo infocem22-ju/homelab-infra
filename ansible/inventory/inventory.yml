@@ -8,9 +8,3 @@ all:
         demo-node-2:
           ansible_host: 127.0.0.1
           ansible_port: 2222
-    lab_vms:
-      hosts:
-        lab-vm-1:
-          ansible_host: 192.168.122.101
-        lab-vm-2:
-          ansible_host: 192.168.122.102

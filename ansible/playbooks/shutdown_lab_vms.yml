@@ -1,0 +1,23 @@
+---
+- name: Arrêt propre des VMs lab
+  hosts: lab_vms_static
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Vérifier la connectivité SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 10
+      ignore_errors: true
+      register: ssh_check
+
+    - name: Shutdown VM
+      ansible.builtin.shell: shutdown -h now
+      async: 10
+      poll: 0
+      when: ssh_check is succeeded
+
+    - name: VM non joignable (déjà éteinte ?)
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} non joignable, déjà éteinte ou Proxmox down"
+      when: ssh_check is failed
