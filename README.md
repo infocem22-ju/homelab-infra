@@ -1,285 +1,122 @@
-# Homelab Infra
+# homelab-infra
 
-Infrastructure de laboratoire pour expérimenter l'automatisation système avec Ansible, dans un environnement reproductible basé sur des containers et des VMs KVM.
+Infrastructure de lab personnelle, construite from scratch et maintenue activement.
 
----
+Objectif : pratiquer l'administration Linux et l'automatisation d'infrastructure dans un environnement reproductible — provisioning de VMs, monitoring, CI/CD, déploiement de services.
 
-## Prérequis
-
-### Lab containers (Podman)
-
-- Podman installé
-- Clé SSH générée automatiquement par `lab.sh` au premier lancement
-
-### Lab VMs (KVM)
-
-- `libvirt`, `virt-install`, `qemu-img`, `cloud-localds` installés
-- Image de base Debian 12 cloud : `/var/lib/libvirt/images/debian-12-generic-amd64.qcow2`
-- Clé SSH `~/.ssh/homelab_ansible_ed25519` présente
-- Lancer `vm.sh` avec `sudo`
-
-### Ansible
-
-- Ansible installé
-- Collection `community.zabbix` : `ansible-galaxy collection install community.zabbix`
-
-### Inventory Zabbix (optionnel)
-
-L'inventory dynamique Zabbix est exclu du repo (credentials en clair, bug connu community.zabbix#713).
-
-Pour l'utiliser, copier le fichier exemple et renseigner les credentials :
-
-```bash
-cp ansible/inventory/zabbix_inventory.yml.example ansible/inventory/zabbix_inventory.yml
-```
-
-Puis l'appeler explicitement :
-
-```bash
-ansible-inventory -i ansible/inventory/zabbix_inventory.yml --list
-```
-
-> Note : la résolution de variables Ansible Vault dans ce plugin n'est pas fonctionnelle en 4.1.1 (bug non corrigé depuis 2022).
-
----
-
-## Objectif
-
-Ce projet me permet de :
-
-- apprendre et structurer l'usage d'Ansible
-- tester le déploiement de services
-- expérimenter le monitoring (Zabbix)
-- construire une infrastructure locale reproductible
+**Stack :** Ansible · Proxmox VE · Podman · Zabbix · GitHub Actions · Ollama · Git
 
 ---
 
 ## Architecture
 
-Le lab repose sur deux types de nodes :
-
-### Containers Podman (éphémères)
-
-Nodes légers pour tester les playbooks Ansible rapidement :
-
-- demo-node-1 → localhost:2221
-- demo-node-2 → localhost:2222
-
-Un utilisateur `ansible` est automatiquement configuré avec une clé SSH.
-
-### VMs KVM
-
-VMs complètes provisionnées via cloud-init, plus proches d'un environnement réel :
-
-- Debian 12, 2 vCPU, 2 Go RAM, 20 Go disque (paramètres par défaut)
-- IP assignée par DHCP sur le réseau `default` libvirt
-- Utilisateur `ansible` configuré automatiquement via cloud-init
-
----
-
-## Lancer le lab containers
-
-Créer les nodes :
-
-```bash
-./bootstrap/lab.sh up 2
 ```
-
-Voir le statut :
-
-```bash
-./bootstrap/lab.sh status
-```
-
-Supprimer le lab :
-
-```bash
-./bootstrap/lab.sh down
+[Workstation principale]
+  │
+  ├─ Proxmox VE (hyperviseur)
+  │   ├─ lab-vm-1  192.168.122.101  (Debian 12, cloud-init)
+  │   └─ lab-vm-2  192.168.122.102  (Debian 12, cloud-init)
+  │
+  ├─ Podman (containers légers)
+  │   ├─ demo-node-1  SSH localhost:2221
+  │   ├─ demo-node-2  SSH localhost:2222
+  │   └─ site Hugo    HTTP localhost:8080
+  │
+  ├─ Zabbix (monitoring)
+  │   └─ inventory dynamique → lab-vm-1, lab-vm-2
+  │
+  └─ Ollama + Open WebUI (IA locale, en cours de stabilisation)
 ```
 
 ---
 
-## Lancer le lab VMs
+## Ce qui tourne (avril 2026)
 
-Créer les VMs :
+- **Proxmox VE** : templates Debian 12 cloud-init, provisioning via collection `community.proxmox`
+- **Ansible** : playbooks idempotents, rôles, `group_vars`, credentials chiffrés via Vault
+- **Playbook master** `provision_and_bootstrap.yml` : chaînage complet Proxmox → `wait_for_connection` → bootstrap → déploiement Zabbix agent
+- **Zabbix** : auto-register des agents, inventory dynamique avec filtre `groupids`, dashboards
+- **Podman** : containers de test + site statique Hugo déployé via Ansible
+- **CI/CD GitHub Actions** : runner self-hosted, workflow déclenché sur push `ansible/` — génération Hugo, vérification containers, exécution playbook
 
-```bash
-sudo ./bootstrap/vm.sh up 2
+---
+
+## Structure du repo
+
 ```
-
-Voir le statut :
-
-```bash
-sudo ./bootstrap/vm.sh status
-```
-
-Supprimer les VMs :
-
-```bash
-sudo ./bootstrap/vm.sh down
-```
-
-Variables d'environnement disponibles :
-
-```bash
-PROJECT=lab RAM=2048 VCPUS=2 DISK_SIZE=20G sudo ./bootstrap/vm.sh up 2
+homelab-infra/
+├── ansible.cfg
+├── ansible/
+│   ├── inventory/          # inventory statique + dynamique Zabbix
+│   ├── group_vars/
+│   ├── playbooks/
+│   │   └── provision_and_bootstrap.yml   # playbook master
+│   └── roles/
+├── bootstrap/
+│   ├── lab.sh              # gestion containers Podman
+│   └── vm.sh               # legacy KVM (remplacé par Proxmox)
+├── homelab-site/           # site Hugo déployé via Ansible
+└── Notes.md                # journal de bord technique
 ```
 
 ---
 
-## Tester Ansible
+## Prérequis
 
-Test de connectivité (containers) :
+### Ansible
 
 ```bash
-ansible demo_nodes -m ping
+pip install ansible
+ansible-galaxy collection install community.zabbix community.proxmox
 ```
 
-Test de connectivité (VMs, via inventory Zabbix) :
+### Inventory dynamique Zabbix
 
 ```bash
-ansible-inventory -i ansible/inventory/zabbix_inventory.yml --list
+cp ansible/inventory/zabbix_inventory.yml.example ansible/inventory/zabbix_inventory.yml
+# Renseigner les credentials (ou utiliser Ansible Vault)
 ```
 
-Playbook de test :
+### Containers Podman
 
 ```bash
-ansible-playbook ansible/playbooks/playbook-trace.yml
+./bootstrap/lab.sh up 2     # créer les nodes
+./bootstrap/lab.sh status   # vérifier
+./bootstrap/lab.sh down     # supprimer
 ```
 
 ---
 
-## Déploiement d'un service (exemple : site Hugo)
-
-Ce projet inclut un exemple complet de déploiement d'un site statique via nginx.
-
-### 1. Générer le site
+## Lancer le provisioning complet
 
 ```bash
-cd homelab-site
-hugo
-```
+# Provisionner les VMs + bootstrap + Zabbix agent
+ansible-playbook ansible/playbooks/provision_and_bootstrap.yml
 
-### 2. Lancer le lab
+# Tester la connectivité via inventory Zabbix
+ansible -i ansible/inventory/zabbix_inventory.yml lab_vms -m ping
 
-```bash
-./bootstrap/lab.sh up 1
-```
-
-### 3. Déployer avec Ansible
-
-```bash
+# Déployer le site Hugo
 ansible-playbook ansible/playbooks/lab_site.yml
 ```
 
-### Accès
-
-http://localhost:8080
-
-### Principe
-
-- nginx est installé sur le node
-- le site généré (`public/`) est déployé
-- la configuration nginx est appliquée automatiquement
-
 ---
 
-## Concepts clés
-
-- nodes éphémères → reconstruction complète via Ansible
-- VMs provisionnées via cloud-init → infrastructure plus proche du réel
-- séparation infra / contenu
-- orchestration via playbooks
-- automatisation du déploiement de services
-
----
-
-## Structure du projet
-
-```
-homelab-infra
-├── ansible.cfg
-├── ansible
-│   ├── inventory
-│   ├── group_vars
-│   ├── playbooks
-│   └── roles
-├── bootstrap
-│   ├── lab.sh
-│   └── vm.sh
-├── homelab-site
-└── Notes.md
-```
-
----
-
-## Topologie actuelle du homelab
-
-```
-[Workstation principale]
-  ├─ Ansible
-  ├─ Podman / Lab containers
-  │   ├─ demo-node-1 (SSH localhost:2221)
-  │   └─ demo-node-2 (SSH localhost:2222)
-  │
-  ├─ KVM / Lab VMs
-  │   └─ lab-vm-1..N (DHCP, réseau libvirt)
-  │
-  ├─ Monitoring
-  │   └─ Zabbix
-  │
-  └─ IA locale
-      ├─ Ollama
-      └─ Open WebUI
-```
-
----
-
-## Schéma du lab
-
-```mermaid
-flowchart TD
-    A[Workstation principale] --> B[Ansible]
-    A --> C[Podman / Lab containers]
-    A --> D[KVM / Lab VMs]
-    A --> E[Monitoring Zabbix]
-    A --> F[IA locale : Ollama / Open WebUI]
-
-    C --> G[demo-node-1<br/>SSH localhost:2221]
-    C --> H[demo-node-2<br/>SSH localhost:2222]
-
-    D --> I[lab-vm-1..N<br/>DHCP libvirt]
-
-    D -. évolution .-> J[Kubernetes]
-```
-
----
 ## CI/CD
 
-Ce projet utilise GitHub Actions avec un self-hosted runner.
+Runner self-hosted GitHub Actions. Le workflow se déclenche sur push dans `ansible/` ou manuellement.
 
-Le workflow se déclenche automatiquement sur push si des fichiers `ansible/` sont modifiés, ou manuellement via l'interface GitHub.
+Pipeline :
+1. Clone du repo
+2. Génération du site Hugo
+3. Vérification que les containers Podman sont actifs
+4. Exécution du playbook Ansible
 
-### Ce que fait le pipeline
-
-1. Clone le repo
-2. Génère le site Hugo
-3. Vérifie que les containers Podman sont actifs
-4. Lance le playbook Ansible
-
-### Prérequis
-
-Le self-hosted runner doit tourner sur la workstation et les containers Podman doivent être up pour que le déploiement aboutisse.
+---
 
 ## Roadmap
 
-- structurer les rôles Ansible
-- déployer Zabbix agent
-- stabiliser l'inventory dynamique des VMs
-- GitHub Actions : déclencher un playbook sur push
-
----
-
-## Statut
-
-Projet en évolution continue.
+- [ ] Diagnostic système via Zabbix : CPU, RAM, I/O — méthodologie incident
+- [ ] Intégration `homelab-control.sh` pour contrôle Proxmox en ligne de commande
+- [ ] Stabilisation RAG Ollama
+- [ ] Kubernetes — après consolidation Proxmox
