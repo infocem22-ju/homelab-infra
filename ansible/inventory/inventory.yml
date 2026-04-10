@@ -5,6 +5,3 @@ all:
         demo-node-1:
           ansible_host: 127.0.0.1
           ansible_port: 2221
-        demo-node-2:
-          ansible_host: 127.0.0.1
-          ansible_port: 2222

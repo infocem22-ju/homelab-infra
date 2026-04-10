@@ -19,3 +19,11 @@ ollama/ollama-data/
 .ZABBIX_FIABLE# --- Hugo build output ---\nhomelab-site/public/
 ansible/inventory/zabbix_inventory.yml
 ansible/ansible.log
+# --- Ollama (todo: nettoyer avant publication)
+ollama/Modelfile.mail-tagger
+ollama/discover_domains.py
+ollama/discover_domains_v2.py
+ollama/new_rules.txt
+ollama/ignored_domains.json
+ollama/progress.json
+ollama/knowledge/

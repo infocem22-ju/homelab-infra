@@ -9,6 +9,7 @@ services:
       - HSA_OVERRIDE_GFX_VERSION=12.0.1
       - OLLAMA_LLM_LIBRARY=rocm
       - ROCR_VISIBLE_DEVICES=0
+      - OLLAMA_ORIGINS=moz-extension://*
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "bash", "-lc", "ollama list >/dev/null 2>&1"]
@@ -26,6 +27,10 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     depends_on: [ollama]
     restart: unless-stopped
 
