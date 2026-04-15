@@ -1,0 +1,20 @@
+plugin: community.zabbix.zabbix_inventory
+server_url: "{{ lookup('env', 'ZABBIX_SERVER') }}"
+login_user: "{{ lookup('env', 'ZABBIX_USERNAME') }}"
+login_password: "{{ lookup('env', 'ZABBIX_PASSWORD') }}"
+validate_certs: false
+
+host_zapi_query:
+  selectInterfaces:
+    - ip
+    - type
+    - main
+  groupids: ["27"]
+
+compose:
+  ansible_host: zbx_interfaces[0].ip
+
+keyed_groups:
+  - key: host_groups
+    prefix: ""
+    separator: ""
