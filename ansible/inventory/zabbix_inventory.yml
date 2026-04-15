@@ -1,7 +1,7 @@
 plugin: community.zabbix.zabbix_inventory
-server_url: "{{ lookup('env', 'ZABBIX_SERVER') }}"
-login_user: "{{ lookup('env', 'ZABBIX_USERNAME') }}"
-login_password: "{{ lookup('env', 'ZABBIX_PASSWORD') }}"
+server_url: "http://192.168.50.6:8081"
+login_user: "Admin"
+login_password: "zabbix"
 validate_certs: false
 
 host_zapi_query:
