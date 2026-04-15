@@ -17,7 +17,7 @@ ollama/ollama-data/
 
 # --- Local markers ---
 .ZABBIX_FIABLE# --- Hugo build output ---\nhomelab-site/public/
-ansible/inventory/zabbix_inventory.yml
+
 ansible/ansible.log
 # --- Ollama (todo: nettoyer avant publication)
 ollama/Modelfile.mail-tagger
