@@ -1,16 +1,7 @@
-# community.zabbix.zabbix_inventory - credentials en clair (voulu)
-#
-# Le plugin ne supporte pas la résolution de vars Jinja2 ni Ansible Vault
-# dans le contexte ansible-inventory (bug connu #713, non corrigé en 4.1.1).
-# Les vars d'env ZABBIX_* sont théoriquement supportées mais non fonctionnelles.
-#
-# Ce fichier est exclu du repo via .gitignore.
-# Pour setup : copier zabbix_inventory.yml.example et renseigner les credentials.
-
 plugin: community.zabbix.zabbix_inventory
-server_url: "http://192.168.50.6:8081"
-login_user: "Admin"
-login_password: "zabbix"
+server_url: "{{ lookup('env', 'ZABBIX_SERVER') }}"
+login_user: "{{ lookup('env', 'ZABBIX_USERNAME') }}"
+login_password: "{{ lookup('env', 'ZABBIX_PASSWORD') }}"
 validate_certs: false
 
 host_zapi_query:
