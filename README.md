@@ -116,15 +116,21 @@ ansible-playbook ansible/playbooks/lab_site.yml
 AWX est déployé sur une VM KVM dédiée (Debian 12 + k3s + AWX Operator).
 
 Credentials configurés :
-- **Machine** : clé SSH pour accès aux VMs
-- **Source Control** : token GitHub pour sync du repo
-- **Zabbix Inventory** : credential type custom pour l'inventaire dynamique
+- **ssh-homelab** : clé SSH (user `ansible`) pour accès aux VMs lab
+- **homelab-token** : token GitHub pour sync du repo (Source Control)
+- **zabbix-inventory-creds** : credential type custom pour l'inventaire dynamique
 
 Inventaires :
-- `homelab-statique` : basé sur `lab_vms_static.yml`
-- `homelab-zabbix` : inventaire dynamique via plugin `community.zabbix.zabbix_inventory`
+- `homelab` : basé sur `lab_vms_static.yml` (groupe `lab_vms_static`)
+- `homelab-zabbix` : inventaire dynamique via plugin `community.zabbix.zabbix_inventory` (groupe `lab_vms`, filtré sur le groupe Zabbix "Lab VMs")
 
 > **Note** : le plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug connu [#713](https://github.com/ansible-collections/community.zabbix/issues/713)). Les credentials sont actuellement en clair dans le fichier d'inventaire (lab uniquement).
+
+Job Templates :
+- **lab-vms-bootstrap** : `ansible/playbooks/bootstrap_lab_vms.yml` sur l'inventaire `homelab-zabbix` — installe/configure zabbix-agent2
+- **lab-vms-shutdown** : `ansible/playbooks/shutdown_lab_vms.yml` sur l'inventaire `homelab` — arrêt propre des VMs
+
+Définis de façon idempotente via `ansible/awx/job_templates.yml` (collection `awx.awx`, auth par token API — voir `ansible/awx/.env`, gitignoré).
 
 ---
 
@@ -142,7 +148,7 @@ Pipeline :
 
 ## Roadmap
 
-- [ ] Job Templates AWX pour les playbooks principaux
+- [x] Job Templates AWX pour les playbooks principaux (bootstrap, shutdown) — 27/08/2026
 - [ ] CI/CD via AWX (remplacement GitHub Actions)
 - [ ] Diagnostic système via Zabbix : méthodologie incident
-- [ ] Stabilisation RAG Ollama
+- [ ] ~~Stabilisation RAG Ollama~~ — abandonné, la partie IA est déplacée vers un projet perso non publié

@@ -14,15 +14,17 @@ Acquis :
 - Inventaire dynamique Zabbix via plugin `community.zabbix.zabbix_inventory`
 - Job Template opérationnel sur lab-vm-1 et lab-vm-2
 - Journalisation complète des jobs (qui, quand, quoi, résultat par hôte)
+- **Job Templates `lab-vms-bootstrap` et `lab-vms-shutdown` créés et validés de bout en bout (27/08/2026)**, définis en code via `ansible/awx/job_templates.yml` (collection `awx.awx`, idempotent, rejouable)
 
 Limitations connues :
 - Plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug [#713](https://github.com/ansible-collections/community.zabbix/issues/713), fermé sans fix côté plugin). En production, utiliser un script d'inventaire custom ou attendre un fix upstream.
 - Credential type custom AWX créé (injection vars d'env) mais inefficace à cause du bug ci-dessus.
+- `ansible/playbooks/proxmox_provision_vms.yml` est cassé depuis la suppression du vault (commit `0216d9d`, 14/04/2026) : il référence des vars `vault_proxmox_host/user/token_id/token_secret` qui n'existent plus nulle part (ni fichier, ni credential AWX dédié). Les VMs lab existent déjà sur Proxmox (créées avant la suppression du vault) et se démarrent/arrêtent très bien via les Job Templates AWX ou `qm start/stop` en direct — mais le playbook de (re)provisioning depuis zéro est actuellement inutilisable tel quel.
 
 À faire :
-- Job Templates pour les playbooks principaux (bootstrap, shutdown)
 - CI/CD via AWX en remplacement de GitHub Actions
 - Inventaire dynamique Zabbix : investiguer script custom comme contournement
+- Réparer `proxmox_provision_vms.yml` : redéfinir une source pour les vars `vault_proxmox_*` (credential AWX de type Proxmox, ou vars.yml en clair pour le lab)
 
 ---
 
@@ -42,6 +44,10 @@ Acquis :
 - Auto-register des agents, groupe `Lab VMs`, inventory dynamique filtré
 - Template Proxmox VE by HTTP (API port 8006)
 - Méthodologie de diagnostic incident : CPU / RAM / I/O / logs / réseau
+
+Bug corrigé (27/08/2026) :
+- `ansible/inventory/zabbix_inventory.yml` utilisait `keyed_groups` sur une clé `host_groups` qui n'existe pas dans les données renvoyées par le plugin (aucun `selectGroups` demandé côté API) → tous les hosts atterrissaient dans `ungrouped`, en local comme via AWX. Remplacé par `groups: {lab_vms: true}`, puisque `host_zapi_query` filtre déjà sur le groupe Zabbix "Lab VMs" (`groupids: ["27"]`) — inutile de re-dériver le nom du groupe.
+- Credential AWX `ssh-homelab` : username vide (tentait une connexion `root`, refusée par les VMs) et clé SSH privée périmée par rapport à celle réellement autorisée sur les VMs. Les deux ont été corrigés directement dans AWX (pas versionné, c'est de la config runtime AWX).
 
 ---
 
@@ -67,12 +73,15 @@ VMs actives :
 
 ---
 
-### IA locale (Ollama)
+### IA locale (Ollama) — déprécié (27/08/2026)
 
+Toute la partie IA (RAG, mail-tagger) a été déplacée vers un projet perso non publié. Le stack Ollama + Open WebUI reste présent dans ce repo mais n'est plus développé activement ; ne pas y investir de nouveau travail sans confirmation.
+
+Historique :
 - Stack Ollama + Open WebUI via Docker Compose
 - RAG : collection `devops-books` (22 livres devops/linux/sécurité)
 - Mail-tagger : classification emails Thunderbird via Ollama
-- Bug plugin Zabbix documenté → credentials en clair dans `zabbix_inventory.yml` (gitignored)
+- Bug plugin Zabbix documenté → credentials en clair dans `zabbix_inventory.yml` — **attention : ce fichier est en fait tracké/commité dans git, pas gitignoré comme supposé ici**, à corriger (retirer du repo + rotation du mot de passe Zabbix)
 
 ---
 
