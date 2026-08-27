@@ -2,3 +2,5 @@
 collections:
   - name: community.zabbix
     version: ">=4.1.1"
+  - name: awx.awx
+    version: ">=24.6.0"

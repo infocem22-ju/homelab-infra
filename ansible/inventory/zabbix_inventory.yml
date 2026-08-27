@@ -14,7 +14,5 @@ host_zapi_query:
 compose:
   ansible_host: zbx_interfaces[0].ip
 
-keyed_groups:
-  - key: host_groups
-    prefix: ""
-    separator: ""
+groups:
+  lab_vms: true

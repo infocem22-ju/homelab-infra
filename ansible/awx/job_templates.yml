@@ -1,0 +1,39 @@
+---
+# Crée/maintient les Job Templates AWX pour les playbooks principaux du lab.
+# Auth attendue via env : CONTROLLER_HOST, CONTROLLER_OAUTH_TOKEN (voir ansible/awx/.env, gitignoré).
+- name: AWX - Job Templates playbooks principaux
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    awx_organization: Default
+    awx_project: homelab-infra
+    awx_credential: ssh-homelab
+
+  tasks:
+    - name: Job Template - Bootstrap VMs lab (zabbix-agent2)
+      awx.awx.job_template:
+        name: lab-vms-bootstrap
+        description: "Bootstrap des VMs lab : installation/config zabbix-agent2"
+        organization: "{{ awx_organization }}"
+        project: "{{ awx_project }}"
+        playbook: ansible/playbooks/bootstrap_lab_vms.yml
+        inventory: homelab-zabbix
+        credentials:
+          - "{{ awx_credential }}"
+        job_type: run
+        state: present
+
+    - name: Job Template - Arrêt propre des VMs lab
+      awx.awx.job_template:
+        name: lab-vms-shutdown
+        description: "Arrêt propre des VMs lab via shutdown -h now"
+        organization: "{{ awx_organization }}"
+        project: "{{ awx_project }}"
+        playbook: ansible/playbooks/shutdown_lab_vms.yml
+        inventory: homelab
+        credentials:
+          - "{{ awx_credential }}"
+        job_type: run
+        state: present
