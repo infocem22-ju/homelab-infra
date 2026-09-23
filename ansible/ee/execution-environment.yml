@@ -1,0 +1,25 @@
+---
+# Execution Environment AWX du homelab : image AWX de base + dépendances Python
+# des modules utilisés (proxmoxer pour community.proxmox) + collections du repo.
+# Build : cd ansible/ee && ansible-builder build -t homelab-ee:<tag>
+version: 3
+
+images:
+  base_image:
+    # awx-ee:latest du 19/05/2026 (ansible-core 2.18, requis >= 2.17 par community.proxmox 2.x),
+    # épinglé par digest pour un build reproductible
+    name: quay.io/ansible/awx-ee@sha256:0a62923d808cdcdee491db6a63de07f169a7437a82a218d03182e059cccc93e3
+
+dependencies:
+  # ansible tourne sous python3.12 dans l'image ; /usr/bin/python3 pointe encore sur 3.9
+  python_interpreter:
+    python_path: /usr/bin/python3.12
+  galaxy: ../../requirements.yml
+  python:
+    - proxmoxer>=2.0
+    - requests
+
+additional_build_steps:
+  append_final:
+    - LABEL org.opencontainers.image.source=https://github.com/infocem22-ju/homelab-infra
+    - LABEL org.opencontainers.image.description="Execution Environment AWX du homelab (community.proxmox + proxmoxer)"

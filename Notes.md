@@ -14,7 +14,8 @@ Acquis :
 - Inventaire dynamique Zabbix via plugin `community.zabbix.zabbix_inventory`
 - Job Template opérationnel sur lab-vm-1 et lab-vm-2
 - Journalisation complète des jobs (qui, quand, quoi, résultat par hôte)
-- `proxmox_provision_vms.yml` réparé (23/09/2026) : plus de vars `vault_proxmox_*`, auth via variables d'env `PROXMOX_*` (lues nativement par `community.proxmox`), injectées dans AWX par un credential type custom « Proxmox API » ; Job Template `lab-vms-provision` défini en code
+- `proxmox_provision_vms.yml` réparé (23/09/2026) : plus de vars `vault_proxmox_*`, auth via variables d'env `PROXMOX_*` (lues nativement par `community.proxmox`), injectées dans AWX par un credential type custom « Proxmox API » ; Job Template `lab-vms-provision` défini en code et **validé dans AWX (23/09/2026)**
+- Execution Environment custom `homelab-ee` (`ansible/ee/execution-environment.yml`, ansible-builder) : base `awx-ee` épinglée par digest (ansible-core 2.18, requis par `community.proxmox` 2.x) + `proxmoxer` + collections du repo ; publié sur `ghcr.io/infocem22-ju/homelab-ee:1.0` (public) et déclaré dans AWX via `job_templates.yml`
 - **Job Templates `lab-vms-bootstrap` et `lab-vms-shutdown` créés et validés de bout en bout (27/08/2026)**, définis en code via `ansible/awx/job_templates.yml` (collection `awx.awx`, idempotent, rejouable)
 
 Limitations connues :
@@ -24,7 +25,7 @@ Limitations connues :
 À faire :
 - CI/CD via AWX en remplacement de GitHub Actions
 - Inventaire dynamique Zabbix : investiguer script custom comme contournement
-- Valider le Job Template `lab-vms-provision` dans AWX (playbook validé en local le 23/09/2026 ; token API Proxmox `root@pam!ansible` et credential `proxmox-api` créés)
+- `proxmox_provision_vms.yml` : la tâche cloud-init (`update: true`) remonte `changed` à chaque exécution, même sans modification — à rendre idempotente
 
 ---
 

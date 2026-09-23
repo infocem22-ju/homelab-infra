@@ -40,11 +40,20 @@
           required: [host, user, token_id, token_secret]
         injectors:
           env:
-            PROXMOX_HOST: "{% raw %}{{ host }}{% endraw %}"
-            PROXMOX_USER: "{% raw %}{{ user }}{% endraw %}"
-            PROXMOX_TOKEN_ID: "{% raw %}{{ token_id }}{% endraw %}"
-            PROXMOX_TOKEN_SECRET: "{% raw %}{{ token_secret }}{% endraw %}"
+            PROXMOX_HOST: "{% raw %}{{ host | trim }}{% endraw %}"
+            PROXMOX_USER: "{% raw %}{{ user | trim }}{% endraw %}"
+            PROXMOX_TOKEN_ID: "{% raw %}{{ token_id | trim }}{% endraw %}"
+            PROXMOX_TOKEN_SECRET: "{% raw %}{{ token_secret | trim }}{% endraw %}"
             PROXMOX_VALIDATE_CERTS: "{% raw %}{{ validate_certs | default(false) }}{% endraw %}"
+        state: present
+
+    - name: Execution Environment - homelab-ee (proxmoxer + collections du repo)
+      awx.awx.execution_environment:
+        name: homelab-ee
+        description: "Défini dans ansible/ee/execution-environment.yml"
+        image: ghcr.io/infocem22-ju/homelab-ee:1.0
+        pull: missing
+        organization: "{{ awx_organization }}"
         state: present
 
     - name: Job Template - Bootstrap VMs lab (zabbix-agent2)
@@ -81,6 +90,7 @@
         project: "{{ awx_project }}"
         playbook: ansible/playbooks/proxmox_provision_vms.yml
         inventory: homelab
+        execution_environment: homelab-ee
         credentials:
           - proxmox-api
         job_type: run

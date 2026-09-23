@@ -28,3 +28,4 @@ ollama/new_rules.txt
 ollama/ignored_domains.json
 ollama/progress.json
 ollama/knowledge/
+ansible/ee/context/
