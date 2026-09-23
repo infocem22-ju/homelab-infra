@@ -12,6 +12,7 @@ INV_VMS_STATIC="$BASE/ansible/inventory/lab_vms_static.yml"
 NODES_COUNT=2
 RUNNER_DIR="$HOME/actions-runner"
 PROXMOX_VM="proxmox-lab"
+AWX_VM="Awx"
 VIRSH="virsh -c qemu:///system"
 
 TITLE="Homelab Control"
@@ -46,6 +47,12 @@ proxmox_running() {
     [[ "$state" == *"running"* ]] && echo "✅ actif" || echo "⛔ arrêté"
 }
 
+awx_running() {
+    local state
+    state=$(LANG=C virsh -c qemu:///system domstate "$AWX_VM" 2>/dev/null)
+    [[ "$state" == *"running"* ]] && echo "✅ actif" || echo "⛔ arrêté"
+}
+
 lab_vms_running() {
     local state
     state=$(LANG=C virsh -c qemu:///system domstate "$PROXMOX_VM" 2>/dev/null)
@@ -68,6 +75,7 @@ zabbix_up() {
 build_status() {
     echo "Zabbix  : $(compose_running "$ZABBIX_COMPOSE")"
     echo "Proxmox : $(proxmox_running)"
+    echo "AWX     : $(awx_running)"
     echo "VMs Lab : $(lab_vms_running)"
     echo "Nodes   : $(nodes_running)"
     echo "Ollama  : $(compose_running "$OLLAMA_COMPOSE")"
@@ -146,6 +154,18 @@ menu_proxmox() {
     esac
 }
 
+menu_awx() {
+    local choice
+    choice=$(submenu "AWX" \
+        "▶  Démarrer $AWX_VM" \
+        "■  Arrêter $AWX_VM" \
+    ) || return
+    case "$choice" in
+        "▶  Démarrer $AWX_VM") run_action "AWX start" $VIRSH start "$AWX_VM" ;;
+        "■  Arrêter $AWX_VM")  run_action "AWX stop"  $VIRSH shutdown "$AWX_VM" ;;
+    esac
+}
+
 menu_vms() {
     local choice
     choice=$(submenu "VMs Lab  (⚠ Zabbix requis)" \
@@ -215,7 +235,7 @@ menu_runner() {
 stop_all() {
     zenity --question \
         --title="$TITLE" \
-        --text="Arrêter toute la stack ?\n\nOrdre : VMs guests → Proxmox → Zabbix → Ollama → Nodes → Runner" \
+        --text="Arrêter toute la stack ?\n\nOrdre : VMs guests → Proxmox → AWX → Zabbix → Ollama → Nodes → Runner" \
         --no-wrap 2>/dev/null || return
 
     # 1. VMs guests (inventory statique, pas de dépendance Zabbix)
@@ -224,7 +244,10 @@ stop_all() {
     # 2. VM Proxmox
     $VIRSH shutdown "$PROXMOX_VM" >/dev/null 2>&1 || true
 
-    # 3. Reste de la stack
+    # 3. VM AWX
+    $VIRSH shutdown "$AWX_VM" >/dev/null 2>&1 || true
+
+    # 4. Reste de la stack
     docker compose -f "$ZABBIX_COMPOSE" down >/dev/null 2>&1 || true
     docker compose -f "$OLLAMA_COMPOSE" down >/dev/null 2>&1 || true
     bash "$LAB_SCRIPT" down >/dev/null 2>&1 || true
@@ -244,11 +267,12 @@ while true; do
         --title="$TITLE" \
         --text="$STATUS\n\nChoisir une catégorie :" \
         --column="Action" \
-        --width=380 --height=420 \
+        --width=380 --height=460 \
         --hide-header \
         2>/dev/null \
         "🔍 Zabbix" \
         "🖥  Proxmox" \
+        "🎮 AWX" \
         "💻 VMs Lab" \
         "📦 Nodes (containers)" \
         "🤖 Ollama" \
@@ -260,6 +284,7 @@ while true; do
     case "$CHOICE" in
         "🔍 Zabbix")            menu_zabbix ;;
         "🖥  Proxmox")          menu_proxmox ;;
+        "🎮 AWX")               menu_awx ;;
         "💻 VMs Lab")           menu_vms ;;
         "📦 Nodes (containers)") menu_nodes ;;
         "🤖 Ollama")            menu_ollama ;;
