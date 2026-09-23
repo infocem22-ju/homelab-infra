@@ -12,6 +12,41 @@
     awx_credential: ssh-homelab
 
   tasks:
+    # Le credential lui-même (avec le token) se crée à la main dans l'UI AWX,
+    # type "Proxmox API", nom "proxmox-api" : aucun secret dans le repo.
+    - name: Credential type - Proxmox API (injection env pour community.proxmox)
+      awx.awx.credential_type:
+        name: Proxmox API
+        description: "Token API Proxmox injecté en variables d'environnement PROXMOX_*"
+        kind: cloud
+        inputs:
+          fields:
+            - id: host
+              type: string
+              label: Hôte Proxmox
+            - id: user
+              type: string
+              label: Utilisateur (ex. root@pam)
+            - id: token_id
+              type: string
+              label: Token ID
+            - id: token_secret
+              type: string
+              label: Token secret
+              secret: true
+            - id: validate_certs
+              type: boolean
+              label: Vérifier le certificat TLS
+          required: [host, user, token_id, token_secret]
+        injectors:
+          env:
+            PROXMOX_HOST: "{% raw %}{{ host }}{% endraw %}"
+            PROXMOX_USER: "{% raw %}{{ user }}{% endraw %}"
+            PROXMOX_TOKEN_ID: "{% raw %}{{ token_id }}{% endraw %}"
+            PROXMOX_TOKEN_SECRET: "{% raw %}{{ token_secret }}{% endraw %}"
+            PROXMOX_VALIDATE_CERTS: "{% raw %}{{ validate_certs | default(false) }}{% endraw %}"
+        state: present
+
     - name: Job Template - Bootstrap VMs lab (zabbix-agent2)
       awx.awx.job_template:
         name: lab-vms-bootstrap
@@ -35,5 +70,18 @@
         inventory: homelab
         credentials:
           - "{{ awx_credential }}"
+        job_type: run
+        state: present
+
+    - name: Job Template - Provisioning des VMs lab sur Proxmox
+      awx.awx.job_template:
+        name: lab-vms-provision
+        description: "Clone lab-template → lab-vm-1/2, cloud-init IP fixe, démarrage"
+        organization: "{{ awx_organization }}"
+        project: "{{ awx_project }}"
+        playbook: ansible/playbooks/proxmox_provision_vms.yml
+        inventory: homelab
+        credentials:
+          - proxmox-api
         job_type: run
         state: present

@@ -1,4 +1,8 @@
 ---
+# Auth Proxmox via env (lue nativement par community.proxmox) :
+#   PROXMOX_HOST, PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET
+#   (optionnel : PROXMOX_VALIDATE_CERTS=false pour le certificat auto-signé)
+# Dans AWX : credential de type "Proxmox API" (voir ansible/awx/job_templates.yml).
 - name: Provision VMs sur Proxmox
   hosts: localhost
   gather_facts: false
@@ -14,12 +18,19 @@
         ip: 192.168.122.102/24
 
   tasks:
+    - name: Vérifier que l'auth Proxmox est fournie par l'environnement
+      ansible.builtin.assert:
+        that: lookup('ansible.builtin.env', item) | length > 0
+        fail_msg: "Variable d'environnement {{ item }} manquante"
+        quiet: true
+      loop:
+        - PROXMOX_HOST
+        - PROXMOX_USER
+        - PROXMOX_TOKEN_ID
+        - PROXMOX_TOKEN_SECRET
+
     - name: Cloner le template
       community.proxmox.proxmox_kvm:
-        api_host: "{{ vault_proxmox_host }}"
-        api_user: "{{ vault_proxmox_user }}"
-        api_token_id: "{{ vault_proxmox_token_id }}"
-        api_token_secret: "{{ vault_proxmox_token_secret }}"
         node: "{{ proxmox_node }}"
         clone: lab-template
         vmid: 9000
@@ -32,10 +43,6 @@
 
     - name: Configurer cloud-init (IP fixe + gateway)
       community.proxmox.proxmox_kvm:
-        api_host: "{{ vault_proxmox_host }}"
-        api_user: "{{ vault_proxmox_user }}"
-        api_token_id: "{{ vault_proxmox_token_id }}"
-        api_token_secret: "{{ vault_proxmox_token_secret }}"
         node: "{{ proxmox_node }}"
         vmid: "{{ item.newid }}"
         ipconfig:
@@ -46,10 +53,6 @@
 
     - name: Démarrer les VMs
       community.proxmox.proxmox_kvm:
-        api_host: "{{ vault_proxmox_host }}"
-        api_user: "{{ vault_proxmox_user }}"
-        api_token_id: "{{ vault_proxmox_token_id }}"
-        api_token_secret: "{{ vault_proxmox_token_secret }}"
         node: "{{ proxmox_node }}"
         vmid: "{{ item.newid }}"
         state: started
