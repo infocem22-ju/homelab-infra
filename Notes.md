@@ -64,6 +64,17 @@ VMs actives :
 - `lab-vm-2` 192.168.122.102 — Debian 12, cloud-init
 - `lab-crash-1` — VM de test pour scénarios d'incident (conservée)
 
+Prochaine étape — VM pare-feu (ajoutée 23/09/2026) :
+- Objectif : profil admin système polyvalent (segmentation réseau, filtrage, NAT) — moins central pour un poste DevOps
+- VM pare-feu sur Proxmox (OPNsense ou pfSense) : WAN sur le réseau actuel `192.168.122.0/24`, LAN sur un bridge interne dédié (`vmbr1`)
+- Passer les VMs lab derrière le pare-feu : règles de filtrage, NAT sortant, DHCP/DNS côté LAN
+- Supervision du pare-feu dans Zabbix (SNMP)
+- Pistes ensuite : VPN WireGuard, config pilotée par Ansible via l'API OPNsense
+- À comparer avec une alternative 100 % Ansible : VM Debian routeur/pare-feu en `nftables`, règles templatées depuis le repo
+  - OPNsense : appliance avec interface web, ce qu'on retrouve le plus chez les PME ; automatisation possible via API mais partielle, config de référence stockée dans l'appliance
+  - Debian + nftables : tout en code (rôle Ansible, versionné, rejouable, déployable via AWX), cohérent avec le reste du lab ; pas d'interface web, tout est à construire à la main (NAT, DHCP/DNS avec dnsmasq, logs)
+  - Idée : monter les deux successivement pour comparer, et documenter les avantages et inconvénients de chacun
+
 ---
 
 ### CI/CD
