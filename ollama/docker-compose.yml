@@ -7,8 +7,8 @@ services:
     devices: ["/dev/kfd:/dev/kfd", "/dev/dri:/dev/dri"]
     environment:
       - HSA_OVERRIDE_GFX_VERSION=12.0.1
-      - OLLAMA_LLM_LIBRARY=rocm
       - ROCR_VISIBLE_DEVICES=0
+      - OLLAMA_DEBUG=1
       - OLLAMA_ORIGINS=moz-extension://*
     restart: unless-stopped
     healthcheck:
@@ -27,6 +27,11 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - LANG=fr_FR.UTF-8
+      - LC_ALL=fr_FR.UTF-8
+      - PYTHONIOENCODING=utf-8
+      - ENABLE_API_KEYS=true
+      - USER_PERMISSIONS_FEATURES_API_KEYS=true
     ulimits:
       nofile:
         soft: 65536
