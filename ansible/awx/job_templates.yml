@@ -104,6 +104,8 @@
         project: "{{ awx_project }}"
         playbook: ansible/playbooks/lab_site.yml
         inventory: homelab-zabbix
+        # lab-crash-1 (scénarios d'incident) est souvent éteinte : exclue pour ne pas faire échouer le pipeline.
+        limit: "lab_vms:!lab-crash-1"
         credentials:
           - "{{ awx_credential }}"
         job_type: run
