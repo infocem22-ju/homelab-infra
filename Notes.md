@@ -21,6 +21,7 @@ Acquis :
 Limitations connues :
 - Plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug [#713](https://github.com/ansible-collections/community.zabbix/issues/713), fermé sans fix côté plugin). En production, utiliser un script d'inventaire custom ou attendre un fix upstream.
 - Credential type custom AWX créé (injection vars d'env) mais inefficace à cause du bug ci-dessus.
+- Conséquence : `ansible/inventory/zabbix_inventory.yml` est versionné avec les identifiants en clair — choix assumé : AWX lit l'inventory source depuis le Project Git, et ce sont les identifiants par défaut (`Admin`/`zabbix`) d'un Zabbix de lab non exposé. Piste plus tard : script d'inventaire custom lisant des vars d'env injectées par AWX.
 
 À faire :
 - CI/CD via AWX en remplacement de GitHub Actions
@@ -93,7 +94,6 @@ Historique :
 - Stack Ollama + Open WebUI via Docker Compose
 - RAG : collection `devops-books` (22 livres devops/linux/sécurité)
 - Mail-tagger : classification emails Thunderbird via Ollama
-- Bug plugin Zabbix documenté → credentials en clair dans `zabbix_inventory.yml` — **attention : ce fichier est en fait tracké/commité dans git, pas gitignoré comme supposé ici**, à corriger (retirer du repo + rotation du mot de passe Zabbix)
 
 ---
 

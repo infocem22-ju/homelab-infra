@@ -55,8 +55,7 @@ homelab-infra/
 ├── ansible/
 │   ├── inventory/
 │   │   ├── lab_vms_static.yml          # inventaire statique KVM/Proxmox
-│   │   ├── zabbix_inventory.yml        # inventaire dynamique Zabbix (gitignored en local)
-│   │   └── zabbix_inventory.yml.example
+│   │   └── zabbix_inventory.yml        # inventaire dynamique Zabbix (versionné, lu par AWX)
 │   ├── group_vars/
 │   ├── playbooks/
 │   │   └── provision_and_bootstrap.yml
@@ -81,10 +80,7 @@ ansible-galaxy collection install -r requirements.yml
 
 ### Inventory dynamique Zabbix
 
-```bash
-cp ansible/inventory/zabbix_inventory.yml.example ansible/inventory/zabbix_inventory.yml
-# Renseigner les credentials Zabbix
-```
+`ansible/inventory/zabbix_inventory.yml` est prêt à l'emploi (identifiants par défaut de Zabbix, `server_url` à adapter).
 
 ### Containers Podman
 
@@ -124,7 +120,7 @@ Inventaires :
 - `homelab` : basé sur `lab_vms_static.yml` (groupe `lab_vms_static`)
 - `homelab-zabbix` : inventaire dynamique via plugin `community.zabbix.zabbix_inventory` (groupe `lab_vms`, filtré sur le groupe Zabbix "Lab VMs")
 
-> **Note** : le plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug connu [#713](https://github.com/ansible-collections/community.zabbix/issues/713)). Les credentials sont actuellement en clair dans le fichier d'inventaire (lab uniquement).
+> **Note** : le plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug connu [#713](https://github.com/ansible-collections/community.zabbix/issues/713)). Le fichier d'inventaire est donc versionné avec les identifiants en clair : ce sont les identifiants par défaut (`Admin`/`zabbix`) d'un Zabbix de lab non exposé, et AWX doit pouvoir lire le fichier depuis le Project Git.
 
 Job Templates :
 - **lab-vms-bootstrap** : `ansible/playbooks/bootstrap_lab_vms.yml` sur l'inventaire `homelab-zabbix` — installe/configure zabbix-agent2
