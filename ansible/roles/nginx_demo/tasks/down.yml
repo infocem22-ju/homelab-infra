@@ -1,5 +1,11 @@
 ---
-- name: Stop nginx (best-effort)
+- name: Stop nginx (systemd)
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: stopped
+  when: ansible_service_mgr == "systemd"
+
+- name: Stop nginx (no systemd, best-effort)
   ansible.builtin.shell: |
     set -e
     pkill -TERM nginx 2>/dev/null || true
@@ -8,6 +14,7 @@
   args:
     executable: /bin/bash
   changed_when: true
+  when: ansible_service_mgr != "systemd"
 
 - name: Ensure nginx port is closed
   ansible.builtin.wait_for:

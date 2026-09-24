@@ -1,5 +1,6 @@
 ---
+# Pipeline de déploiement des VMs lab, lancé par AWX (Job Template lab-site).
 - import_playbook: 01_host_trace.yml
 - import_playbook: 10_nginx_up.yml
 - import_playbook: 20_zabbix_agent2.yml
-- import_playbook: 30_hugo_site.yml
+# 30_hugo_site.yml : à migrer vers les VMs lab (build Hugo dans l'EE), cible encore demo-node-1.

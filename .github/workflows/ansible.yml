@@ -8,30 +8,38 @@ on:
       - 'ansible/**'
   workflow_dispatch:
 
+# Le runner self-hosted ne fait que déclencher le Job Template AWX : toute la logique vit dans AWX.
+# Secrets requis : AWX_HOST (ex. http://192.168.122.148) et AWX_TOKEN (token OAuth AWX, scope write).
 jobs:
   deploy:
     runs-on: self-hosted
+    env:
+      AWX_HOST: ${{ secrets.AWX_HOST }}
+      AWX_TOKEN: ${{ secrets.AWX_TOKEN }}
+      JOB_TEMPLATE: lab-site
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build Hugo site
+      - name: Lancer le Job Template AWX
+        id: launch
         run: |
-          cd homelab-site
-          hugo
+          api() { curl -sSf -H "Authorization: Bearer $AWX_TOKEN" -H "Content-Type: application/json" "$@"; }
+          JT_ID=$(api "$AWX_HOST/api/v2/job_templates/?name=$JOB_TEMPLATE" | jq -er '.results[0].id')
+          JOB_ID=$(api -X POST "$AWX_HOST/api/v2/job_templates/$JT_ID/launch/" | jq -er '.job')
+          echo "Job AWX $JOB_ID lancé : $AWX_HOST/#/jobs/playbook/$JOB_ID/output"
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Vérifier les containers Podman
+      - name: Attendre la fin du job
+        timeout-minutes: 30
         run: |
-          COUNT=$(podman ps --filter "label=homelab.project=demo" --format '{{.Names}}' | wc -l)
-          if [ "$COUNT" -eq 0 ]; then
-            echo "Aucun container lab actif, abandon."
-            exit 1
-          fi
-          echo "$COUNT container(s) actif(s)"
-
-      - name: Run playbook
-        run: |
-          ansible-playbook ansible/playbooks/lab_site.yml \
-            --private-key ~/.ssh/homelab_ansible_ed25519 \
-            -i ansible/inventory/inventory.yml
+          api() { curl -sSf -H "Authorization: Bearer $AWX_TOKEN" "$@"; }
+          JOB_ID=${{ steps.launch.outputs.job_id }}
+          while :; do
+            STATUS=$(api "$AWX_HOST/api/v2/jobs/$JOB_ID/" | jq -r '.status')
+            case "$STATUS" in
+              successful) echo "Job $JOB_ID : succès"; break ;;
+              failed|error|canceled)
+                api "$AWX_HOST/api/v2/jobs/$JOB_ID/stdout/?format=txt" | tail -n 50
+                echo "Job $JOB_ID : $STATUS"; exit 1 ;;
+              *) sleep 10 ;;
+            esac
+          done

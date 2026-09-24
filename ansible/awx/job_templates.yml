@@ -95,3 +95,16 @@
           - proxmox-api
         job_type: run
         state: present
+
+    - name: Job Template - Déploiement lab-site (déclenché par GitHub Actions)
+      awx.awx.job_template:
+        name: lab-site
+        description: "Trace hôte + nginx + zabbix-agent2 sur les VMs lab (lab_site.yml)"
+        organization: "{{ awx_organization }}"
+        project: "{{ awx_project }}"
+        playbook: ansible/playbooks/lab_site.yml
+        inventory: homelab-zabbix
+        credentials:
+          - "{{ awx_credential }}"
+        job_type: run
+        state: present
