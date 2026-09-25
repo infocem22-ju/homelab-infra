@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 # Le runner self-hosted ne fait que déclencher le Job Template AWX : toute la logique vit dans AWX.
-# Secrets requis : AWX_HOST (ex. http://192.168.122.148) et AWX_TOKEN (token OAuth AWX, scope write).
+# Secrets requis : AWX_HOST (ex. http://192.168.122.148:30080) et AWX_TOKEN (token OAuth AWX, scope write).
 jobs:
   deploy:
     runs-on: self-hosted

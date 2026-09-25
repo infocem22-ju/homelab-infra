@@ -17,6 +17,7 @@ Acquis :
 - `proxmox_provision_vms.yml` réparé (23/09/2026) : plus de vars `vault_proxmox_*`, auth via variables d'env `PROXMOX_*` (lues nativement par `community.proxmox`), injectées dans AWX par un credential type custom « Proxmox API » ; Job Template `lab-vms-provision` défini en code et **validé dans AWX (23/09/2026)**
 - Execution Environment custom `homelab-ee` (`ansible/ee/execution-environment.yml`, ansible-builder) : base `awx-ee` épinglée par digest (ansible-core 2.18, requis par `community.proxmox` 2.x) + `proxmoxer` + collections du repo ; publié sur `ghcr.io/infocem22-ju/homelab-ee:1.0` (public) et déclaré dans AWX via `job_templates.yml`
 - **Job Templates `lab-vms-bootstrap` et `lab-vms-shutdown` créés et validés de bout en bout (27/08/2026)**, définis en code via `ansible/awx/job_templates.yml` (collection `awx.awx`, idempotent, rejouable)
+- **CI/CD via AWX validé de bout en bout (25/09/2026)** : push GitHub → runner self-hosted → API AWX → Job Template `lab-site` (job 74 OK). Token OAuth AWX dédié (scope write, description `github-actions`) stocké en secrets GitHub `AWX_TOKEN` / `AWX_HOST` (`http://192.168.122.148:30080`)
 
 Limitations connues :
 - Plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug [#713](https://github.com/ansible-collections/community.zabbix/issues/713), fermé sans fix côté plugin). En production, utiliser un script d'inventaire custom ou attendre un fix upstream.
@@ -24,7 +25,6 @@ Limitations connues :
 - Conséquence : `ansible/inventory/zabbix_inventory.yml` est versionné avec les identifiants en clair — choix assumé : AWX lit l'inventory source depuis le Project Git, et ce sont les identifiants par défaut (`Admin`/`zabbix`) d'un Zabbix de lab non exposé. Piste plus tard : script d'inventaire custom lisant des vars d'env injectées par AWX.
 
 À faire :
-- CI/CD via AWX en remplacement de GitHub Actions
 - Inventaire dynamique Zabbix : investiguer script custom comme contournement
 - `proxmox_provision_vms.yml` : la tâche cloud-init (`update: true`) remonte `changed` à chaque exécution, même sans modification — à rendre idempotente
 
@@ -81,8 +81,8 @@ Prochaine étape — VM pare-feu (ajoutée 23/09/2026) :
 ### CI/CD
 
 - Runner self-hosted GitHub Actions opérationnel
-- Workflow sur push `ansible/` : Hugo + vérification containers + playbook Ansible
-- Migration vers AWX prévue
+- Workflow sur push `ansible/` : le runner ne fait que déclencher le Job Template AWX `lab-site` et attendre son résultat (migré vers AWX le 24/09/2026, validé le 25/09/2026)
+- Runner lancé à la main (`~/actions-runner/run.sh`), pas installé en service : les runs restent `queued` tant qu'il n'est pas démarré. Les runs en file d'attente avant la création des secrets les reçoivent vides → relancer un run neuf
 
 ---
 
