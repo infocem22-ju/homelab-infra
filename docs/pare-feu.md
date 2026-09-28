@@ -1,0 +1,101 @@
+# VM pare-feu — rapport de travail
+
+Journal tenu au fil de l'eau pendant la mise en place d'un pare-feu dans le lab.
+Démarré le 28/09/2026.
+
+## Objectif
+
+Placer les VMs du lab derrière un pare-feu, comme sur un réseau de PME :
+
+- WAN sur le réseau actuel `192.168.122.0/24` (réseau `default` de libvirt)
+- LAN sur un bridge interne dédié à Proxmox (`vmbr1`)
+- Filtrage, NAT sortant, DHCP/DNS côté LAN
+- Supervision du pare-feu dans Zabbix (SNMP)
+
+On monte deux solutions l'une après l'autre pour les comparer :
+
+| | OPNsense | Debian + nftables |
+|---|---|---|
+| Type | Appliance avec interface web | Routeur construit à la main |
+| Configuration | Stockée dans l'appliance, API partielle | Rôle Ansible versionné, déployé via AWX |
+| Ce qu'on retrouve | Très présent en PME | Cohérent avec le reste du lab (tout en code) |
+| À construire | Peu de choses | NAT, DHCP/DNS (dnsmasq), logs |
+
+## État de départ (28/09/2026)
+
+| Composant | Adresse | État |
+|---|---|---|
+| Zabbix (Docker Compose) | hôte | up |
+| Proxmox VE (VM KVM `proxmox-lab`) | `192.168.122.106:8006` | up — 4 vCPU, 10 Gio de RAM, une seule carte réseau (`default`) |
+| AWX 24.6.1 (VM KVM `Awx`) | `192.168.122.148:30080` | up |
+| `lab-vm-1` / `lab-vm-2` | `.101` / `.102` | éteintes, dans Proxmox |
+
+Points notés au démarrage :
+
+- Proxmox est lui-même une VM KVM avec une seule interface sur `default`. Le bridge `vmbr1` du LAN peut rester interne à Proxmox (sans carte physique) : le pare-feu fait le lien entre `vmbr0` (WAN) et `vmbr1` (LAN).
+- Pas d'accès SSH root par clé depuis le poste vers Proxmox. Le repo passe par l'API (token, variables `PROXMOX_*`, voir `ansible/playbooks/proxmox_provision_vms.yml`).
+- La RAM est limitée à 10 Gio pour le pare-feu et les VMs du lab : à surveiller.
+
+## Journal
+
+### 28/09/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX). VMs du lab laissées éteintes.
+- Rapport créé.
+- Réseau Proxmox relevé : `vmbr0` = `192.168.122.106/24`, passerelle `192.168.122.1`, port `nic0`. Ce sera le WAN d'OPNsense.
+- Création de `vmbr1` (bridge LAN) dans Système → Réseau : sans IP, sans passerelle, sans port, autostart coché, puis « Appliquer la configuration ».
+- Image OPNsense 26.7 (dvd, amd64) téléchargée depuis `pkg.opnsense.org` et décompressée (`.iso.bz2` → `.iso`, 2,0 Gio). À envoyer dans `local → ISO Images → Upload` : Proxmox ne voit un ISO qu'une fois qu'il est dans ce stockage.
+- ISO envoyé dans `local`. VM `105 (opnsense)` créée :
+  - 2 Gio de RAM, 2 vCPU (x86-64-v2-AES), SeaBIOS, i440fx, VirtIO SCSI single
+  - disque de 16 Gio sur `local-lvm`
+  - `net0` VirtIO sur `vmbr0` (WAN), `net1` VirtIO sur `vmbr1` (LAN)
+- Affectation des interfaces corrigée en mode live (console, option 1), puis installation en UFS sur `da0`. ISO retiré avant le reboot. `firewall=1` retiré des deux cartes. Après le reboot, l'affectation est conservée : `WAN (vtnet0)` en DHCP, `192.168.122.119/24` ; `LAN (vtnet1)` en `192.168.1.1/24`.
+- Interface web d'OPNsense accessible depuis l'hôte (`https://192.168.122.119`), passée en français.
+- SSH activé pour l'administration, parce que la console noVNC est pénible (clavier, pas de copier-coller) :
+  - connexion root par clé uniquement (`~/.ssh/id_ecdsa` de l'hôte), connexion par mot de passe désactivée ; vérifié depuis l'hôte, OPNsense ne propose plus que `publickey`
+  - règle WAN : Pass TCP `192.168.122.1/32` → This Firewall:22
+  - piège : une clé collée avec du texte avant `ecdsa-sha2-…` est ignorée
+- LAN configuré par l'option 2 de la console : `LAN (vtnet1)` en `10.10.10.1/24`, serveur DHCP `10.10.10.200`–`.249`, réglages d'accès web non réinitialisés. Le WAN reste en `192.168.122.119`.
+- À la relecture du matériel : `firewall=1` sur les deux cartes, à décocher. Réglages mineurs : sockets/cœurs à inverser (1 socket, 2 cœurs), `discard` absent du disque.
+
+### Prochaine session
+
+- VM 103 derrière le pare-feu : `net0` sur `vmbr1`, IP en DHCP (via cloud-init ou dans le système selon la VM)
+- Vérifications depuis la VM : bail DHCP en `10.10.10.200`–`.249`, ping de `10.10.10.1`, résolution DNS, sortie Internet (NAT)
+- Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
+- Trancher le point ouvert sur l'accès d'AWX aux VMs du lab
+
+## Décisions
+
+- **28/09/2026 — OPNsense en premier.** C'est le moyen le plus rapide d'avoir un pare-feu qui marche, et il servira de référence pour la version nftables.
+- **28/09/2026 — Mise en place à la main dans l'interface web de Proxmox.** Pas de token API sur le poste pour l'instant. Les étapes sont notées ici pour pouvoir les passer ensuite en Ansible.
+- **28/09/2026 — LAN en `10.10.10.0/24`** au lieu du `192.168.1.0/24` par défaut, trop courant sur les box et donc exposé aux collisions. Plan d'adressage :
+  - `10.10.10.1` : OPNsense, passerelle et DNS du LAN
+  - `.10`–`.199` : adresses fixes (les VMs du lab gardent leur numéro, `lab-vm-1` → `10.10.10.101`)
+  - `.200`–`.249` : plage DHCP
+
+## Points ouverts
+
+- **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`.
+
+## Problèmes rencontrés
+
+- **Clavier repassé en QWERTY après l'installation.** Le clavier choisi dans l'installeur ne vaut que pour l'installeur. Solution temporaire dans le shell : `kbdcontrol -l fr` (en QWERTY, le `-` est sur la touche `)`). Solution durable : System → Settings → Administration, rubrique Console.
+
+- **« Aucun ISO dans `local` », et `/var/lib/vz` semblait ne pas exister (28/09/2026).** Fausse alerte : le chemin avait été cherché sur le poste, alors qu'il est à l'intérieur de la VM Proxmox. Vérifié dans le Shell du nœud :
+  - `local` (dir, `/var/lib/vz`) est actif, 8,7 Gio libres, contenu `iso,vztmpl,backup,import`
+  - `/var/lib/vz/template/iso` existe
+  - `local-lvm` (lvmthin) est actif, environ 22 Gio libres pour les disques de VM
+
+  La liste était vide simplement parce que l'ISO n'avait pas encore été envoyé.
+- **Interfaces inversées au premier démarrage (28/09/2026).** En mode live, OPNsense 26.7 prend la première carte comme LAN : `LAN = vtnet0` (`192.168.1.1/24`) et `WAN = vtnet1`. Or `vtnet0` = `net0` = `vmbr0`, c'est-à-dire le réseau libvirt `192.168.122.0/24`. Deux conséquences : le LAN et son serveur DHCP se retrouvent du côté du réseau existant, et le WAN pointe vers le bridge interne vide. Correction : réaffecter via l'option 1 de la console (`WAN = vtnet0`, `LAN = vtnet1`), puis revérifier après l'installation. Résultat : `WAN = vtnet0`, `LAN = vtnet1` (`192.168.1.1/24`).
+- **WAN affiché sans adresse dans la console.** Ce n'est pas une panne : l'en-tête est affiché avant la réponse DHCP. Le DHCP de libvirt a bien donné un bail au WAN : `192.168.122.119` pour la MAC `bc:24:11:4c:44:30` (`net0`). À noter : la plage DHCP de libvirt (`.2`–`.254`) recouvre les IP fixes du lab (`.101`, `.102`, `.106`), donc un conflit d'adresses est possible.
+- **Interface web figée pendant la configuration du WAN (28/09/2026).** Le poste est côté WAN, et OPNsense bloque tout ce qui arrive sur le WAN. Accès ouvert temporairement avec `pfctl -d` depuis la console. Mais le Save/Apply sur **Interfaces → WAN** (décocher Block private / bogon networks) a rechargé les règles et réactivé le filtrage, ce qui a coupé l'interface web (plus de HTTPS ni de ping depuis l'hôte). Leçons :
+  - `pfctl -d` ne tient que jusqu'au prochain rechargement des règles, et presque chaque Apply en déclenche un.
+  - **Block private networks** passe avant les règles utilisateur. Sur un WAN en adresses privées (cas du lab), il faut le décocher avant qu'une règle Pass puisse servir.
+  - Après ajout de la règle WAN (Pass TCP `192.168.122.1/32` → This Firewall:443) et Apply, l'interface web ne répond toujours pas (ni HTTPS, ni ping). L'hôte sort bien avec la source `192.168.122.1`. Diagnostic dans la console :
+    - `pfctl -si` : filtrage `Enabled`
+    - `pfctl -sr` : plus aucune règle private/bogon, mais la règle chargée est `from 192.168.122.1 port = https to (self)`. Le port 443 a été mis dans **Source port range** au lieu de **Destination port range**. Le port source d'un client étant aléatoire, la règle ne correspondait jamais.
+    - Correction : source port = any, destination port = HTTPS.
+    - Vérifié depuis l'hôte, filtrage actif : HTTPS (443) répond `200`. HTTP (80), SSH (22) et ping restent bloqués. Seul ce qui est autorisé passe.
+  - Pour configurer à l'aise : **Firewall → Settings → Advanced → Disable all packet filtering** résiste aux rechargements. À réactiver à la fin.
