@@ -9,13 +9,21 @@
 
   vars:
     proxmox_node: proxmox-lab
+    # lab-vm-1 : LAN derrière OPNsense (vmbr1, passerelle et DNS = 10.10.10.1).
+    # lab-vm-2 : reste côté WAN (vmbr0), protégée par son propre pare-feu (voir docs/pare-feu.md).
     vms:
       - name: lab-vm-1
         newid: 101
-        ip: 192.168.122.101/24
+        bridge: vmbr1
+        ip: 10.10.10.101/24
+        gw: 10.10.10.1
+        dns: 10.10.10.1
       - name: lab-vm-2
         newid: 102
+        bridge: vmbr0
         ip: 192.168.122.102/24
+        gw: 192.168.122.1
+        dns: 192.168.122.1
 
   tasks:
     - name: Vérifier que l'auth Proxmox est fournie par l'environnement
@@ -40,13 +48,30 @@
         storage: local-lvm
         state: present
       loop: "{{ vms }}"
+      register: clone_result
 
-    - name: Configurer cloud-init (IP fixe + gateway)
+    # Uniquement sur un clone neuf : réécrire net0 sans MAC en génère une nouvelle à chaque passage.
+    - name: Brancher la carte réseau sur le bon bridge
+      community.proxmox.proxmox_kvm:
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.item.newid }}"
+        net:
+          net0: "virtio,bridge={{ item.item.bridge }}"
+        state: present
+        update: true
+      loop: "{{ clone_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.changed
+
+    - name: Configurer cloud-init (IP fixe + gateway + DNS)
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ item.newid }}"
         ipconfig:
-          ipconfig0: "ip={{ item.ip }},gw=192.168.122.1"
+          ipconfig0: "ip={{ item.ip }},gw={{ item.gw }}"
+        nameservers:
+          - "{{ item.dns }}"
         state: present
         update: true
       loop: "{{ vms }}"

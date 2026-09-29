@@ -76,9 +76,18 @@ Points notés au démarrage :
   - Ping AWX → `lab-crash-1` OK, mais SSH en timeout. Cause : `reply-to` (voir Problèmes rencontrés). Corrigé par **Disable reply-to on WAN rules**.
   - **SSH AWX → `10.10.10.220:22` : open.**
 
+- `lab-vm-1` (VM 101) passée derrière le pare-feu : `net0` sur `vmbr1`, cloud-init `10.10.10.101/24`, passerelle et DNS `10.10.10.1`. Repo aligné : `proxmox_provision_vms.yml` (bridge, passerelle et DNS par VM ; `net0` n'est réécrit que sur un clone neuf, sinon la MAC change à chaque passage) et `lab_vms_static.yml`.
+- Interface Zabbix de `lab-vm-1` passée en `10.10.10.101` (API `hostinterface.update`).
+- Premier `lab-site` : `lab-vm-1` `unreachable`. L'inventaire AWX `homelab-zabbix` gardait l'ancienne IP en cache. Synchro de la source, puis « Mettre à jour au lancement » coché.
+- **`lab-site` relancé : `lab-vm-1` ok=22, `lab-vm-2` ok=23, aucun échec.** Sur `lab-vm-1`, le téléchargement du paquet Zabbix confirme la sortie Internet (NAT) et le DNS via OPNsense ; `Configure zabbix-agent2` passe en `changed` car le modèle contient `ListenIP={{ ansible_host }}`.
+- Supervision : l'agent est en mode actif (`ServerActive=192.168.50.6`), il sort par le NAT. `agent.ping` et `system.uptime` de `lab-vm-1` remontent dans Zabbix : pas besoin d'ouvrir le 10050 sur le WAN.
+- `lab-vm-2` reste côté WAN (voir Décisions).
+
 ### Prochaine session
 
-- Passer `lab-vm-1`/`lab-vm-2` sur `vmbr1` en `10.10.10.101`/`.102` : `proxmox_provision_vms.yml`, `lab_vms_static.yml`, et IP des interfaces dans Zabbix (l'inventaire AWX `homelab-zabbix` en tire `ansible_host`)
+- Rôle Ansible `host_firewall` (nftables) pour `lab-vm-2` : entrée bloquée par défaut, SSH depuis AWX et l'hôte, HTTP pour nginx. Prévoir un retour arrière automatique pour ne pas couper AWX.
+- Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
+- `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
 
 ## Décisions
@@ -90,6 +99,7 @@ Points notés au démarrage :
   - `.10`–`.199` : adresses fixes (les VMs du lab gardent leur numéro, `lab-vm-1` → `10.10.10.101`)
   - `.200`–`.249` : plage DHCP
 - **29/09/2026 — AWX reste sur le WAN et atteint le LAN par une route via OPNsense.** Route `10.10.10.0/24 via 192.168.122.119` sur AWX et sur l'hôte, règle WAN SSH limitée à la source AWX. C'est le schéma d'un réseau d'admin qui accède au LAN à travers un pare-feu filtrant. Mettre AWX derrière le pare-feu aurait obligé à router l'hôte et le runner GitHub vers AWX.
+- **29/09/2026 — `lab-vm-2` reste devant le pare-feu, protégée par Ansible.** Deux modèles côte à côte : `lab-vm-1` derrière OPNsense (sécurité périmétrique, règles dans l'appliance) et `lab-vm-2` sur le WAN avec un pare-feu local nftables déployé par AWX (sécurité au niveau de l'hôte, règles versionnées). Le rôle servira aussi pour la version Debian + nftables. Limites assumées : le « WAN » est le réseau NAT de libvirt, pas Internet (menace simulée : une autre machine compromise sur `192.168.122.0/24`) ; en PME, un serveur exposé irait plutôt en DMZ (troisième interface d'OPNsense, `vmbr2`), piste pour plus tard.
 
 ## Points ouverts
 
