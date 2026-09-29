@@ -58,10 +58,19 @@ Points notés au démarrage :
 - LAN configuré par l'option 2 de la console : `LAN (vtnet1)` en `10.10.10.1/24`, serveur DHCP `10.10.10.200`–`.249`, réglages d'accès web non réinitialisés. Le WAN reste en `192.168.122.119`.
 - À la relecture du matériel : `firewall=1` sur les deux cartes, à décocher. Réglages mineurs : sockets/cœurs à inverser (1 socket, 2 cœurs), `discard` absent du disque.
 
+### 29/09/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX), puis VM 105 (OPNsense) et VM 103 démarrées.
+- VM 103 = `lab-crash-1` (déjà exclue du Job Template `lab-site`, donc sans effet sur la CI/CD). `net0` passé sur `vmbr1`, pare-feu Proxmox décoché.
+- Premier test raté : la VM gardait son IP fixe cloud-init `192.168.122.50` / passerelle `192.168.122.1` (`proto static`), d'où « Destination Host Unreachable ». Correction : Cloud-Init → Config IP (net0) en DHCP, « Régénérer l'image », puis arrêt/démarrage depuis Proxmox (un `reboot` interne ne relit pas le disque cloud-init).
+- **LAN validé de bout en bout** depuis `lab-crash-1` :
+  - bail DHCP `10.10.10.220/24`, passerelle `10.10.10.1`
+  - ping de `10.10.10.1` : OK
+  - ping de `1.1.1.1` : OK (NAT sortant fonctionnel)
+  - résolution DNS de `debian.org` : OK (via `10.10.10.1`)
+
 ### Prochaine session
 
-- VM 103 derrière le pare-feu : `net0` sur `vmbr1`, IP en DHCP (via cloud-init ou dans le système selon la VM)
-- Vérifications depuis la VM : bail DHCP en `10.10.10.200`–`.249`, ping de `10.10.10.1`, résolution DNS, sortie Internet (NAT)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
 - Trancher le point ouvert sur l'accès d'AWX aux VMs du lab
 
