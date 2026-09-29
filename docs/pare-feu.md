@@ -69,10 +69,17 @@ Points notés au démarrage :
   - ping de `1.1.1.1` : OK (NAT sortant fonctionnel)
   - résolution DNS de `debian.org` : OK (via `10.10.10.1`)
 
+- Accès d'AWX au LAN, option retenue : route plutôt que déplacer AWX (voir Décisions).
+  - IP WAN d'OPNsense figée par une réservation DHCP libvirt (`bc:24:11:4c:44:30` → `192.168.122.119`) : la route en dépend.
+  - Route `10.10.10.0/24 via 192.168.122.119` ajoutée à chaud sur l'hôte et sur AWX (`homelab-awx`, Debian 12). Persistante sur l'hôte : `<route address='10.10.10.0' prefix='24' gateway='192.168.122.119'/>` dans le réseau libvirt `default` (`net-edit`, prise en compte au prochain démarrage du réseau). Persistante sur AWX : ifupdown, lignes `up ip route replace …` / `down ip route del … || true` dans la section `enp1s0` de `/etc/network/interfaces` (vérifié avec `ifquery enp1s0`).
+  - Règles WAN : Pass TCP `192.168.122.148/32` → LAN net:22 (AWX → LAN SSH), Pass ICMP `192.168.122.0/24` → LAN net (tests).
+  - Ping AWX → `lab-crash-1` OK, mais SSH en timeout. Cause : `reply-to` (voir Problèmes rencontrés). Corrigé par **Disable reply-to on WAN rules**.
+  - **SSH AWX → `10.10.10.220:22` : open.**
+
 ### Prochaine session
 
+- Passer `lab-vm-1`/`lab-vm-2` sur `vmbr1` en `10.10.10.101`/`.102` : `proxmox_provision_vms.yml`, `lab_vms_static.yml`, et IP des interfaces dans Zabbix (l'inventaire AWX `homelab-zabbix` en tire `ansible_host`)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
-- Trancher le point ouvert sur l'accès d'AWX aux VMs du lab
 
 ## Décisions
 
@@ -82,10 +89,11 @@ Points notés au démarrage :
   - `10.10.10.1` : OPNsense, passerelle et DNS du LAN
   - `.10`–`.199` : adresses fixes (les VMs du lab gardent leur numéro, `lab-vm-1` → `10.10.10.101`)
   - `.200`–`.249` : plage DHCP
+- **29/09/2026 — AWX reste sur le WAN et atteint le LAN par une route via OPNsense.** Route `10.10.10.0/24 via 192.168.122.119` sur AWX et sur l'hôte, règle WAN SSH limitée à la source AWX. C'est le schéma d'un réseau d'admin qui accède au LAN à travers un pare-feu filtrant. Mettre AWX derrière le pare-feu aurait obligé à router l'hôte et le runner GitHub vers AWX.
 
 ## Points ouverts
 
-- **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`.
+- **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
 
@@ -108,3 +116,4 @@ Points notés au démarrage :
     - Correction : source port = any, destination port = HTTPS.
     - Vérifié depuis l'hôte, filtrage actif : HTTPS (443) répond `200`. HTTP (80), SSH (22) et ping restent bloqués. Seul ce qui est autorisé passe.
   - Pour configurer à l'aise : **Firewall → Settings → Advanced → Disable all packet filtering** résiste aux rechargements. À réactiver à la fin.
+- **SSH AWX → LAN en timeout alors que le ping passe (29/09/2026).** `pfctl -sr` montrait la règle `pass in quick on vtnet0 reply-to (vtnet0 192.168.122.1) ... from 192.168.122.148 to (vtnet1:network) port = ssh`. Le WAN ayant une passerelle (DHCP), OPNsense ajoute `reply-to` aux règles WAN : le SYN-ACK de `lab-crash-1` part vers l'hôte `192.168.122.1` au lieu de revenir directement à AWX. L'hôte, qui n'a pas vu le SYN, jette le paquet (état invalide). Le ping passait parce que la règle ICMP n'avait pas de `reply-to`. Test utile pour isoler : `nc -zv 10.10.10.220 22` depuis OPNsense lui-même (côté LAN, hors règles WAN) réussissait. Correction : Pare-feu → Paramètres → Avancé → **Disable reply-to on WAN rules**. Sans risque ici : un seul WAN, et les autres règles WAN viennent de la passerelle elle-même.
