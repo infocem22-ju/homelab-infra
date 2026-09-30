@@ -85,7 +85,7 @@ Points notés au démarrage :
 
 ### 30/09/2026
 
-- Rôle Ansible `host_firewall` (nftables) écrit pour `lab-vm-2`, **pas encore déployé** :
+- Rôle Ansible `host_firewall` (nftables) écrit pour `lab-vm-2` :
   - activé par hôte (`host_firewall_enabled`, dans `ansible/inventory/host_vars/lab-vm-2.yml`) ; sur les autres VMs le rôle ne fait rien
   - entrée bloquée par défaut ; ouverts : SSH depuis AWX (`.148`) et l'hôte (`.1`), HTTP pour tous, ping ; les refus sont journalisés (`nft-drop:`, 5 par minute au plus)
   - le 10050 (Zabbix) reste fermé : l'agent est en mode actif, il sort de lui-même
@@ -93,9 +93,14 @@ Points notés au démarrage :
   - ajouté en dernier dans `lab_site.yml` (`40_host_firewall.yml`)
 - Vérifié sur le poste : syntaxe du playbook, et règles générées acceptées par `nft -c`.
 
+- **Déployé par le pipeline** (push → GitHub Actions → AWX, job `lab-site` 87) : `lab-vm-2` ok=33, aucun échec ; `lab-vm-1` ignorée par le rôle. La nouvelle connexion SSH d'AWX est passée, le minuteur de retour arrière a été désarmé. Second passage (job 91) : rien à changer sur le pare-feu.
+- Vérifié depuis l'hôte : 22 et 80 ouverts (HTTP `200`), ping OK, **10050 fermé** (il était ouvert avant). Sur la VM : `nft list ruleset` conforme, service `nftables` activé au démarrage, refus visibles dans `journalctl -k` (`nft-drop:`).
+- La synchro du projet AWX a pris 7 minutes au lieu de quelques secondes : collections Galaxy retéléchargées après le redémarrage de la VM AWX.
+- Le runner GitHub doit être lancé à la main (`~/actions-runner/run.sh`) : les runs de la veille étaient restés en file d'attente et sont partis en même temps.
+
 ### Prochaine session
 
-- Déployer `host_firewall` sur `lab-vm-2` (un push sur `master` lance `lab-site`), puis tester depuis l'hôte : `nc -zv 192.168.122.102 22` et `80` ouverts, `10050` fermé ; `sudo nft list ruleset` et `journalctl -k | grep nft-drop` sur la VM. Tester aussi le retour arrière avec une règle SSH volontairement fausse.
+- Tester le retour arrière de `host_firewall` avec une règle SSH volontairement fausse (la VM doit redevenir joignable seule au bout de 60 s).
 - Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
 - `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
