@@ -104,11 +104,19 @@ Points notés au démarrage :
   - le premier essai a montré deux défauts, corrigés dans `apply.yml` (voir Problèmes rencontrés)
 - Chemin normal revérifié après correction (changement de règles sans coupure, minuteur désarmé, sauvegarde supprimée), puis règles du repo remises : 22 et 80 ouverts, 10050 fermé.
 
+- **Étude de cas : site de `lab-vm-2` inaccessible.** Panne injectée à la main (`nft insert rule inet filter input tcp dport 80 drop`), diagnostic mené de bout en bout :
+  - ping correct, `curl` en délai dépassé (et non en refus) : paquet jeté, pas service arrêté
+  - nginx actif et à l'écoute sur `0.0.0.0:80` ; le `curl` local échouait aussi, car la règle était placée avant `iif "lo" accept`
+  - `/etc/nftables.conf` correct, mais `nft list ruleset` montrait le `drop` en tête de chaîne : dérive entre la configuration versionnée et les règles chargées
+  - corrigé par `sudo nft -f /etc/nftables.conf` (et non `nft flush ruleset`, qui aurait retiré tout le pare-feu)
+  - procédure rédigée : `procedures/service-inaccessible-pare-feu.md`
+- **Faiblesse du rôle trouvée grâce à l'étude de cas** : il ne comparait que le modèle au fichier, donc le pipeline serait sorti en succès sans retirer la règle parasite. Corrigé : le rôle recharge `/etc/nftables.conf` à chaque passage et passe en `changed` s'il a corrigé une dérive. Vérifié depuis le poste : panne réinjectée, un passage du rôle la répare (`changed`), le suivant ne change rien.
+
 ### Prochaine session
 
 - Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
 - `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
-- Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
+- Étude de cas côté OPNsense : même exercice (service inaccessible) pour `lab-vm-1`, la cause étant cette fois dans l'appliance
 
 ## Décisions
 
@@ -127,7 +135,7 @@ Points notés au démarrage :
 
 ## Problèmes rencontrés
 
-- **Clavier repassé en QWERTY après l'installation.** Le clavier choisi dans l'installeur ne vaut que pour l'installeur. Solution temporaire dans le shell : `kbdcontrol -l fr` (en QWERTY, le `-` est sur la touche `)`). Solution durable : System → Settings → Administration, rubrique Console.
+- **Clavier repassé en QWERTY après l'installation.** Le clavier choisi dans l'installeur ne vaut que pour l'installeur. Solution temporaire dans le shell : `kbdcontrol -l fr` (en QWERTY, le `-` est sur la touche `)`). Solution durable : System → Settings → Administration, rubrique Console. **Constaté le 30/09/2026 : le clavier est resté en français après redémarrage, le `kbdcontrol -l fr` a tenu. Plus rien à faire.**
 
 - **« Aucun ISO dans `local` », et `/var/lib/vz` semblait ne pas exister (28/09/2026).** Fausse alerte : le chemin avait été cherché sur le poste, alors qu'il est à l'intérieur de la VM Proxmox. Vérifié dans le Shell du nœud :
   - `local` (dir, `/var/lib/vz`) est actif, 8,7 Gio libres, contenu `iso,vztmpl,backup,import`

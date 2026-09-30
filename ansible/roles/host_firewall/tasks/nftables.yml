@@ -18,6 +18,21 @@
   ansible.builtin.include_tasks: apply.yml
   when: host_firewall_conf is changed
 
+# Une règle ajoutée à la main ne modifie pas le fichier : sans ce rechargement, le rôle
+# ne verrait jamais une dérive des règles chargées. Le fichier ayant déjà été validé
+# par un passage précédent, pas besoin de retour arrière ici.
+- name: Reload ruleset (fixes manual drift)
+  ansible.builtin.shell: |
+    set -e
+    before="$(nft list ruleset)"
+    nft -f /etc/nftables.conf
+    [ "$before" = "$(nft list ruleset)" ] || echo DRIFT
+  args:
+    executable: /bin/bash
+  register: host_firewall_reload
+  changed_when: "'DRIFT' in host_firewall_reload.stdout"
+  when: host_firewall_conf is not changed
+
 # Le service recharge /etc/nftables.conf au démarrage de la VM.
 - name: Enable nftables service
   ansible.builtin.systemd_service:
