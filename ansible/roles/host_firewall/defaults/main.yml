@@ -1,0 +1,23 @@
+---
+# Le rôle ne fait rien tant qu'il n'est pas activé pour l'hôte (voir inventory/host_vars).
+host_firewall_enabled: false
+
+# Entrée bloquée par défaut : seules ces règles ouvrent un port.
+# sources absent = ouvert à tous ; port = un numéro ou une liste.
+host_firewall_rules:
+  - name: SSH depuis AWX et l'hôte
+    proto: tcp
+    port: 22
+    sources:
+      - 192.168.122.148
+      - 192.168.122.1
+  - name: HTTP (nginx)
+    proto: tcp
+    port: 80
+
+host_firewall_allow_ping: true
+host_firewall_log_drops: true
+
+# Retour arrière automatique : si Ansible n'arrive pas à se reconnecter après
+# l'application des règles, l'ancienne configuration est remise au bout de ce délai.
+host_firewall_rollback_delay: 60

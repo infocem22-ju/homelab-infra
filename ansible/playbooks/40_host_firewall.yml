@@ -1,0 +1,7 @@
+---
+# N'agit que sur les hôtes où host_firewall_enabled est vrai (inventory/host_vars).
+- name: Demo - host firewall (nftables)
+  hosts: all
+  become: true
+  roles:
+    - role: host_firewall

@@ -83,9 +83,19 @@ Points notés au démarrage :
 - Supervision : l'agent est en mode actif (`ServerActive=192.168.50.6`), il sort par le NAT. `agent.ping` et `system.uptime` de `lab-vm-1` remontent dans Zabbix : pas besoin d'ouvrir le 10050 sur le WAN.
 - `lab-vm-2` reste côté WAN (voir Décisions).
 
+### 30/09/2026
+
+- Rôle Ansible `host_firewall` (nftables) écrit pour `lab-vm-2`, **pas encore déployé** :
+  - activé par hôte (`host_firewall_enabled`, dans `ansible/inventory/host_vars/lab-vm-2.yml`) ; sur les autres VMs le rôle ne fait rien
+  - entrée bloquée par défaut ; ouverts : SSH depuis AWX (`.148`) et l'hôte (`.1`), HTTP pour tous, ping ; les refus sont journalisés (`nft-drop:`, 5 par minute au plus)
+  - le 10050 (Zabbix) reste fermé : l'agent est en mode actif, il sort de lui-même
+  - retour arrière automatique : un minuteur systemd (`host-firewall-rollback`, 60 s) remet l'ancien `/etc/nftables.conf` ; il n'est désarmé que si Ansible réussit une nouvelle connexion SSH après l'application des règles
+  - ajouté en dernier dans `lab_site.yml` (`40_host_firewall.yml`)
+- Vérifié sur le poste : syntaxe du playbook, et règles générées acceptées par `nft -c`.
+
 ### Prochaine session
 
-- Rôle Ansible `host_firewall` (nftables) pour `lab-vm-2` : entrée bloquée par défaut, SSH depuis AWX et l'hôte, HTTP pour nginx. Prévoir un retour arrière automatique pour ne pas couper AWX.
+- Déployer `host_firewall` sur `lab-vm-2` (un push sur `master` lance `lab-site`), puis tester depuis l'hôte : `nc -zv 192.168.122.102 22` et `80` ouverts, `10050` fermé ; `sudo nft list ruleset` et `journalctl -k | grep nft-drop` sur la VM. Tester aussi le retour arrière avec une règle SSH volontairement fausse.
 - Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
 - `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)

@@ -1,0 +1,45 @@
+---
+# Principe : on arme un minuteur qui remet l'ancienne configuration, on applique
+# les nouvelles règles, puis on ouvre une NOUVELLE connexion SSH. Si elle passe,
+# on désarme le minuteur. Sinon le play échoue ici et la VM revient seule en arrière.
+
+- name: Arm rollback timer
+  ansible.builtin.shell: |
+    set -e
+    systemctl stop host-firewall-rollback.timer host-firewall-rollback.service 2>/dev/null || true
+    systemctl reset-failed host-firewall-rollback.service 2>/dev/null || true
+    systemd-run --unit=host-firewall-rollback --on-active={{ host_firewall_rollback_delay }} \
+      /bin/sh -c '{{ host_firewall_rollback_cmd }}'
+  args:
+    executable: /bin/bash
+  vars:
+    host_firewall_rollback_cmd: >-
+      {% if host_firewall_conf.backup_file is defined -%}
+      cp -a {{ host_firewall_conf.backup_file }} /etc/nftables.conf && nft -f /etc/nftables.conf
+      {%- else -%}
+      rm -f /etc/nftables.conf && nft flush ruleset
+      {%- endif %}
+  changed_when: true
+
+- name: Load new ruleset
+  ansible.builtin.command: nft -f /etc/nftables.conf
+  changed_when: true
+
+# La connexion en cours passerait de toute façon (état established) :
+# seule une connexion neuve prouve que la règle SSH est bonne.
+- name: Drop current SSH connection
+  ansible.builtin.meta: reset_connection
+
+- name: Check that Ansible can still connect
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ (host_firewall_rollback_delay | int / 2) | int }}"
+
+- name: Disarm rollback timer
+  ansible.builtin.command: systemctl stop host-firewall-rollback.timer
+  changed_when: true
+
+- name: Remove previous ruleset backup
+  ansible.builtin.file:
+    path: "{{ host_firewall_conf.backup_file }}"
+    state: absent
+  when: host_firewall_conf.backup_file is defined

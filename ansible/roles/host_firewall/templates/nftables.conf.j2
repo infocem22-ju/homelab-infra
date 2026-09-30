@@ -1,0 +1,37 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }} (rôle host_firewall)
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+{% if host_firewall_allow_ping %}
+        icmp type echo-request accept
+        icmpv6 type echo-request accept
+{% endif %}
+        # Découverte de voisins : sans elle, IPv6 ne fonctionne plus du tout
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+
+{% for rule in host_firewall_rules %}
+        {% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} } accept comment "{{ rule.name }}"
+{% endfor %}
+{% if host_firewall_log_drops %}
+
+        limit rate 5/minute log prefix "nft-drop: "
+{% endif %}
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}

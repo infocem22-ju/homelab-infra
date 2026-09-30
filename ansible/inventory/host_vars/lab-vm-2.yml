@@ -1,0 +1,2 @@
+# lab-vm-2 reste côté WAN, sans OPNsense devant : pare-feu local nftables.
+host_firewall_enabled: true

@@ -1,0 +1,5 @@
+---
+# Pas de `when` sur le rôle : il serait hérité par `meta: reset_connection`, qui ne le supporte pas.
+- name: "Host firewall | nftables"
+  ansible.builtin.include_tasks: nftables.yml
+  when: host_firewall_enabled | bool
