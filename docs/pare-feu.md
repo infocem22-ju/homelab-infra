@@ -98,9 +98,14 @@ Points notés au démarrage :
 - La synchro du projet AWX a pris 7 minutes au lieu de quelques secondes : collections Galaxy retéléchargées après le redémarrage de la VM AWX.
 - Le runner GitHub doit être lancé à la main (`~/actions-runner/run.sh`) : les runs de la veille étaient restés en file d'attente et sont partis en même temps.
 
+- **Retour arrière testé** depuis le poste (`ansible-playbook … 40_host_firewall.yml -l lab-vm-2 -e` avec une règle SSH qui oublie l'hôte `.1`) :
+  - le play échoue au bout de 30 s sur « Check that Ansible can still connect », le 22 est bien fermé depuis l'hôte
+  - 60 s après l'application, le 22 se rouvre seul ; `/etc/nftables.conf` et les règles chargées sont revenus à la version précédente
+  - le premier essai a montré deux défauts, corrigés dans `apply.yml` (voir Problèmes rencontrés)
+- Chemin normal revérifié après correction (changement de règles sans coupure, minuteur désarmé, sauvegarde supprimée), puis règles du repo remises : 22 et 80 ouverts, 10050 fermé.
+
 ### Prochaine session
 
-- Tester le retour arrière de `host_firewall` avec une règle SSH volontairement fausse (la VM doit redevenir joignable seule au bout de 60 s).
 - Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
 - `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
 - Clavier de la console d'OPNsense à rendre permanent (pour l'instant, `kbdcontrol -l fr` à chaque démarrage)
@@ -142,3 +147,8 @@ Points notés au démarrage :
     - Vérifié depuis l'hôte, filtrage actif : HTTPS (443) répond `200`. HTTP (80), SSH (22) et ping restent bloqués. Seul ce qui est autorisé passe.
   - Pour configurer à l'aise : **Firewall → Settings → Advanced → Disable all packet filtering** résiste aux rechargements. À réactiver à la fin.
 - **SSH AWX → LAN en timeout alors que le ping passe (29/09/2026).** `pfctl -sr` montrait la règle `pass in quick on vtnet0 reply-to (vtnet0 192.168.122.1) ... from 192.168.122.148 to (vtnet1:network) port = ssh`. Le WAN ayant une passerelle (DHCP), OPNsense ajoute `reply-to` aux règles WAN : le SYN-ACK de `lab-crash-1` part vers l'hôte `192.168.122.1` au lieu de revenir directement à AWX. L'hôte, qui n'a pas vu le SYN, jette le paquet (état invalide). Le ping passait parce que la règle ICMP n'avait pas de `reply-to`. Test utile pour isoler : `nc -zv 10.10.10.220 22` depuis OPNsense lui-même (côté LAN, hors règles WAN) réussissait. Correction : Pare-feu → Paramètres → Avancé → **Disable reply-to on WAN rules**. Sans risque ici : un seul WAN, et les autres règles WAN viennent de la passerelle elle-même.
+- **Retour arrière nftables : le play « réussissait » la reconnexion après coup (30/09/2026).** Au premier test, « Check that Ansible can still connect » est passé en `ok` au bout de 80 s, puis « Disarm rollback timer » a échoué (`Unit host-firewall-rollback.timer not loaded`). Deux causes :
+  - `wait_for_connection` ne vérifie son délai (30 s) qu'entre deux tentatives, et une tentative SSH durait jusqu'à 2 minutes (`timeout = 30` et `retries = 3` dans `ansible.cfg`). La tentative en cours a donc abouti une fois le retour arrière passé. Correction : `ansible_ssh_timeout: 5` et `ansible_ssh_retries: 0` sur cette tâche.
+  - le minuteur systemd a joué à 76 s au lieu de 60 : la précision par défaut d'un timer est d'une minute. Correction : `--timer-property=AccuracySec=1s`.
+
+  La VM était bien revenue en arrière dans les deux cas ; c'est le message d'échec qui était trompeur.

@@ -9,13 +9,14 @@
     systemctl stop host-firewall-rollback.timer host-firewall-rollback.service 2>/dev/null || true
     systemctl reset-failed host-firewall-rollback.service 2>/dev/null || true
     systemd-run --unit=host-firewall-rollback --on-active={{ host_firewall_rollback_delay }} \
+      --timer-property=AccuracySec=1s \
       /bin/sh -c '{{ host_firewall_rollback_cmd }}'
   args:
     executable: /bin/bash
   vars:
     host_firewall_rollback_cmd: >-
       {% if host_firewall_conf.backup_file is defined -%}
-      cp -a {{ host_firewall_conf.backup_file }} /etc/nftables.conf && nft -f /etc/nftables.conf
+      mv {{ host_firewall_conf.backup_file }} /etc/nftables.conf && nft -f /etc/nftables.conf
       {%- else -%}
       rm -f /etc/nftables.conf && nft flush ruleset
       {%- endif %}
@@ -33,7 +34,13 @@
 - name: Check that Ansible can still connect
   ansible.builtin.wait_for_connection:
     timeout: "{{ (host_firewall_rollback_delay | int / 2) | int }}"
+  # Essais SSH courts et sans relance : sinon une seule tentative dure plus longtemps
+  # que le minuteur, et la connexion « réussit » une fois le retour arrière passé.
+  vars:
+    ansible_ssh_timeout: 5
+    ansible_ssh_retries: 0
 
+# Échoue si le minuteur a déjà joué : les règles ont alors été remises en arrière.
 - name: Disarm rollback timer
   ansible.builtin.command: systemctl stop host-firewall-rollback.timer
   changed_when: true
