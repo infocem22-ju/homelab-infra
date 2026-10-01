@@ -114,9 +114,14 @@ Points notés au démarrage :
 
 - **Source d'inventaire `homelab-zabbix` versionnée** (01/10/2026) : `zabbix-source` décrite dans `ansible/awx/job_templates.yml` (`awx.awx.inventory_source`, `update_on_launch: true`), reprise à l'identique de la configuration lue dans l'API AWX. `--check` passe sans aucun changement : le réglage fait à la main le 29/09 est maintenant dans le code.
 
+- **`lab-crash-1` en adresse fixe `10.10.10.50`** (01/10/2026). Réservation Dnsmasq dans OPNsense (Services → Dnsmasq DNS & DHCP → Hosts, MAC de la VM → `10.10.10.50`) : la VM garde son numéro, comme prévu par le plan d'adressage, hors plage DHCP. Après redémarrage, elle répond en `.50` et `.220` est libéré.
+  - Zabbix : IP de l'interface passée de `192.168.122.50` à `10.10.10.50` (API, `hostinterface.update`)
+  - l'agent ne remontait toujours rien : `ListenIP` pointait encore sur l'ancienne IP (voir Problèmes rencontrés). Diagnostic par une commande ad hoc AWX, puisque seul AWX a droit au SSH vers le LAN ; réparé en relançant `lab-vms-bootstrap` (configuration réécrite sur `lab-crash-1` seule)
+  - vérifié dans Zabbix : `agent.ping` à 1, agent actif disponible
+
 ### Prochaine session
 
-- `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
+- Rôle `zabbix_agent2` : ne plus figer `ListenIP` sur `ansible_host` (voir Problèmes rencontrés), pour qu'un changement d'IP ne casse plus l'agent
 - Étude de cas côté OPNsense : même exercice (service inaccessible) pour `lab-vm-1`, la cause étant cette fois dans l'appliance
 
 ## Décisions
@@ -156,6 +161,9 @@ Points notés au démarrage :
     - Vérifié depuis l'hôte, filtrage actif : HTTPS (443) répond `200`. HTTP (80), SSH (22) et ping restent bloqués. Seul ce qui est autorisé passe.
   - Pour configurer à l'aise : **Firewall → Settings → Advanced → Disable all packet filtering** résiste aux rechargements. À réactiver à la fin.
 - **SSH AWX → LAN en timeout alors que le ping passe (29/09/2026).** `pfctl -sr` montrait la règle `pass in quick on vtnet0 reply-to (vtnet0 192.168.122.1) ... from 192.168.122.148 to (vtnet1:network) port = ssh`. Le WAN ayant une passerelle (DHCP), OPNsense ajoute `reply-to` aux règles WAN : le SYN-ACK de `lab-crash-1` part vers l'hôte `192.168.122.1` au lieu de revenir directement à AWX. L'hôte, qui n'a pas vu le SYN, jette le paquet (état invalide). Le ping passait parce que la règle ICMP n'avait pas de `reply-to`. Test utile pour isoler : `nc -zv 10.10.10.220 22` depuis OPNsense lui-même (côté LAN, hors règles WAN) réussissait. Correction : Pare-feu → Paramètres → Avancé → **Disable reply-to on WAN rules**. Sans risque ici : un seul WAN, et les autres règles WAN viennent de la passerelle elle-même.
+- **Agent Zabbix de `lab-crash-1` en échec après le changement d'IP (01/10/2026).** `zabbix-agent2` redémarrait en boucle : `cannot parse "ListenIP" parameter: value of ListenIP not present on the host: "192.168.122.50"`. Le modèle du rôle écrit `ListenIP={{ ansible_host }}`, l'IP de la VM au moment du passage. `lab-vm-1` avait changé d'IP sans souci parce que le pipeline `lab-site` a repassé le rôle juste après ; `lab-crash-1`, exclue de `lab-site`, avait gardé l'ancienne valeur. Deux pièges en chemin :
+  - l'hôte n'a pas accès en SSH au LAN (règle WAN limitée à AWX) : c'est voulu, le diagnostic passe par une commande ad hoc AWX
+  - la première commande ad hoc visait encore `192.168.122.50` : la synchro d'inventaire attendait la mise à jour du projet (premier lancement après le démarrage d'AWX), et les commandes ad hoc ne déclenchent pas `update_on_launch`. Il faut attendre la fin de la synchro avant de lancer la commande.
 - **Retour arrière nftables : le play « réussissait » la reconnexion après coup (30/09/2026).** Au premier test, « Check that Ansible can still connect » est passé en `ok` au bout de 80 s, puis « Disarm rollback timer » a échoué (`Unit host-firewall-rollback.timer not loaded`). Deux causes :
   - `wait_for_connection` ne vérifie son délai (30 s) qu'entre deux tentatives, et une tentative SSH durait jusqu'à 2 minutes (`timeout = 30` et `retries = 3` dans `ansible.cfg`). La tentative en cours a donc abouti une fois le retour arrière passé. Correction : `ansible_ssh_timeout: 5` et `ansible_ssh_retries: 0` sur cette tâche.
   - le minuteur systemd a joué à 76 s au lieu de 60 : la précision par défaut d'un timer est d'une minute. Correction : `--timer-property=AccuracySec=1s`.
