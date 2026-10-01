@@ -112,9 +112,10 @@ Points notés au démarrage :
   - procédure rédigée : `procedures/service-inaccessible-pare-feu.md`
 - **Faiblesse du rôle trouvée grâce à l'étude de cas** : il ne comparait que le modèle au fichier, donc le pipeline serait sorti en succès sans retirer la règle parasite. Corrigé : le rôle recharge `/etc/nftables.conf` à chaque passage et passe en `changed` s'il a corrigé une dérive. Vérifié depuis le poste : panne réinjectée, un passage du rôle la répare (`changed`), le suivant ne change rien.
 
+- **Source d'inventaire `homelab-zabbix` versionnée** (01/10/2026) : `zabbix-source` décrite dans `ansible/awx/job_templates.yml` (`awx.awx.inventory_source`, `update_on_launch: true`), reprise à l'identique de la configuration lue dans l'API AWX. `--check` passe sans aucun changement : le réglage fait à la main le 29/09 est maintenant dans le code.
+
 ### Prochaine session
 
-- Versionner la source d'inventaire `homelab-zabbix` (`awx.awx.inventory_source`, `update_on_launch: true`) dans `ansible/awx/job_templates.yml`
 - `lab-crash-1` : réservation DHCP dans OPNsense et IP à jour dans Zabbix (encore `192.168.122.50`)
 - Étude de cas côté OPNsense : même exercice (service inaccessible) pour `lab-vm-1`, la cause étant cette fois dans l'appliance
 

@@ -56,6 +56,22 @@
         organization: "{{ awx_organization }}"
         state: present
 
+    # Le credential "zabbix-inventory-creds" (accès API Zabbix) se crée à la main dans l'UI AWX.
+    # update_on_launch : sans lui, une VM qui change d'IP reste en cache et le job finit en unreachable.
+    - name: Source d'inventaire - homelab-zabbix (plugin community.zabbix.zabbix_inventory)
+      awx.awx.inventory_source:
+        name: zabbix-source
+        inventory: homelab-zabbix
+        organization: "{{ awx_organization }}"
+        source: scm
+        source_project: "{{ awx_project }}"
+        source_path: ansible/inventory/zabbix_inventory.yml
+        credential: zabbix-inventory-creds
+        update_on_launch: true
+        overwrite: false
+        verbosity: 1
+        state: present
+
     - name: Job Template - Bootstrap VMs lab (zabbix-agent2)
       awx.awx.job_template:
         name: lab-vms-bootstrap
