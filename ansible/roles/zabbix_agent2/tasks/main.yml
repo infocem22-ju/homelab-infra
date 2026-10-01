@@ -62,6 +62,6 @@
 
 - name: Wait for agent2 to listen on 10050 locally
   ansible.builtin.wait_for:
-    host: "{{ ansible_host }}"
+    host: 127.0.0.1
     port: 10050
     timeout: 15
