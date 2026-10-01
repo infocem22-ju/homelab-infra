@@ -121,7 +121,6 @@ Points notés au démarrage :
 
 ### Prochaine session
 
-- Rôle `zabbix_agent2` : ne plus figer `ListenIP` sur `ansible_host` (voir Problèmes rencontrés), pour qu'un changement d'IP ne casse plus l'agent
 - Étude de cas côté OPNsense : même exercice (service inaccessible) pour `lab-vm-1`, la cause étant cette fois dans l'appliance
 
 ## Décisions
@@ -164,6 +163,8 @@ Points notés au démarrage :
 - **Agent Zabbix de `lab-crash-1` en échec après le changement d'IP (01/10/2026).** `zabbix-agent2` redémarrait en boucle : `cannot parse "ListenIP" parameter: value of ListenIP not present on the host: "192.168.122.50"`. Le modèle du rôle écrit `ListenIP={{ ansible_host }}`, l'IP de la VM au moment du passage. `lab-vm-1` avait changé d'IP sans souci parce que le pipeline `lab-site` a repassé le rôle juste après ; `lab-crash-1`, exclue de `lab-site`, avait gardé l'ancienne valeur. Deux pièges en chemin :
   - l'hôte n'a pas accès en SSH au LAN (règle WAN limitée à AWX) : c'est voulu, le diagnostic passe par une commande ad hoc AWX
   - la première commande ad hoc visait encore `192.168.122.50` : la synchro d'inventaire attendait la mise à jour du projet (premier lancement après le démarrage d'AWX), et les commandes ad hoc ne déclenchent pas `update_on_launch`. Il faut attendre la fin de la synchro avant de lancer la commande.
+
+  **Corrigé le 01/10/2026 (commit `8f4c7fc`)** : le rôle n'écrit plus `ListenIP` (l'agent écoute sur toutes les interfaces, valeur par défaut) et vérifie l'écoute sur `127.0.0.1`. Pas d'exposition en plus : le 10050 reste fermé depuis l'hôte sur les trois VMs (nftables sur `lab-vm-2`, aucune règle OPNsense vers le LAN). Passé par `lab-vms-bootstrap` (job 114) : `agent.ping` reçu ensuite pour `lab-vm-1`, `lab-vm-2` et `lab-crash-1`.
 - **Retour arrière nftables : le play « réussissait » la reconnexion après coup (30/09/2026).** Au premier test, « Check that Ansible can still connect » est passé en `ok` au bout de 80 s, puis « Disarm rollback timer » a échoué (`Unit host-firewall-rollback.timer not loaded`). Deux causes :
   - `wait_for_connection` ne vérifie son délai (30 s) qu'entre deux tentatives, et une tentative SSH durait jusqu'à 2 minutes (`timeout = 30` et `retries = 3` dans `ansible.cfg`). La tentative en cours a donc abouti une fois le retour arrière passé. Correction : `ansible_ssh_timeout: 5` et `ansible_ssh_retries: 0` sur cette tâche.
   - le minuteur systemd a joué à 76 s au lieu de 60 : la précision par défaut d'un timer est d'une minute. Correction : `--timer-property=AccuracySec=1s`.
