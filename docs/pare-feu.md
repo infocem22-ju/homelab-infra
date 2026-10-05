@@ -135,7 +135,6 @@ Points notés au démarrage :
 
 ### Prochaine session
 
-- Recréer la clé API `api-lab` : la clé actuelle est passée en clair dans une session de travail
 - Comparaison avec la version Debian + nftables
 
 ## Décisions
