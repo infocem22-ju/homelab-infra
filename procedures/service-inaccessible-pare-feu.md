@@ -112,6 +112,44 @@ Vérifier aussi qu'un port censé rester fermé l'est toujours (`nc -zv 192.168.
 
 ---
 
+## Cas d'un serveur derrière OPNsense (redirection de port)
+
+Dans le lab, le site de `lab-vm-1` (`10.10.10.101`, LAN) est publié par une règle Destination NAT d'OPNsense : `192.168.122.119:80` → `10.10.10.101:80`. Le client ne voit que l'adresse WAN du pare-feu.
+
+### Ce qui change dans la lecture du symptôme
+
+- **Le ping ne teste que le pare-feu** : c'est OPNsense qui répond sur `.119`, pas le serveur
+- **Un refus ne prouve pas que le service est arrêté** : le paquet a été redirigé et livré quelque part où rien n'écoute (mauvais port ou mauvaise IP cible), et le refus du serveur revient au client à travers le NAT
+- **Un délai dépassé** oriente plutôt vers un filtrage (règle de blocage, règle associée absente) ou vers une IP cible qui n'existe pas
+
+### Diagnostic
+
+1. Depuis le client : `ping -c 2 192.168.122.119` puis `curl -v -m 5 http://192.168.122.119/`
+2. Écarter le service, sans passer par le NAT. Le poste n'a pas de SSH vers le LAN : commande ad hoc AWX (Inventaires → `homelab-zabbix` → Hôtes → `lab-vm-1` → Exécuter une commande, module `shell`) :
+
+   ```bash
+   systemctl is-active nginx; ss -ltn | grep ':80 '; curl -sI -m3 http://localhost/ | head -1
+   ```
+
+   Service actif, à l'écoute et en `200` en local : il n'est pas en cause.
+3. Comparer la redirection avec ce que montre `ss` : Pare-feu → NAT → Destination NAT, champs **Redirect Target IP** et **Redirect Target Port**. Dans le shell d'OPNsense, la redirection réellement chargée :
+
+   ```bash
+   pfctl -s nat    # redirections (rdr) ; pfctl -sr ne montre que le filtrage
+   ```
+
+   Avec l'option Firewall rule = Pass, la ligne commence par `rdr pass` et aucune règle n'apparaît dans Règles → WAN : ne pas conclure trop vite qu'il manque une règle.
+
+### Résolution
+
+Corriger la règle Destination NAT dans l'interface, **Appliquer**, puis vérifier depuis le client :
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://192.168.122.119/
+```
+
+---
+
 ## Prévention
 
 - Aucune règle à la main sur les machines : tout passe par le rôle `host_firewall`
@@ -124,3 +162,4 @@ Vérifier aussi qu'un port censé rester fermé l'est toujours (`nc -zv 192.168.
 
 - Testé en lab le 30/09/2026 sur `lab-vm-2` (VM Proxmox, Debian 12, nftables)
 - Scénario simulé : `nft insert rule inet filter input tcp dport 80 drop` ajouté à la main en tête de chaîne
+- Testé en lab le 05/10/2026 sur `lab-vm-1` derrière OPNsense 26.7 : port cible de la redirection passé de `80` à `8080` (refus immédiat alors que nginx tournait)

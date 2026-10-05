@@ -10,7 +10,7 @@ Index des procédures de diagnostic et de maintenance du homelab.
 |---|---|
 | [Disque plein](./disque-plein.md) | Diagnostic et résolution d'une partition saturée |
 | [nginx down](./nginx-down.md) | Diagnostic et résolution d'un service nginx arrêté |
-| [Service inaccessible (pare-feu)](./service-inaccessible-pare-feu.md) | Service qui tourne mais ne répond plus : règle nftables parasite |
+| [Service inaccessible (pare-feu)](./service-inaccessible-pare-feu.md) | Service qui tourne mais ne répond plus : règle nftables parasite, redirection OPNsense erronée |
 
 ---
 

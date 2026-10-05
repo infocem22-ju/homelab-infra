@@ -119,9 +119,24 @@ Points notés au démarrage :
   - l'agent ne remontait toujours rien : `ListenIP` pointait encore sur l'ancienne IP (voir Problèmes rencontrés). Diagnostic par une commande ad hoc AWX, puisque seul AWX a droit au SSH vers le LAN ; réparé en relançant `lab-vms-bootstrap` (configuration réécrite sur `lab-crash-1` seule)
   - vérifié dans Zabbix : `agent.ping` à 1, agent actif disponible
 
+### 05/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX). OPNsense, `lab-vm-1` et `lab-vm-2` démarrent seules avec Proxmox.
+- **Site de `lab-vm-1` publié par redirection de port** (Pare-feu → NAT → Destination NAT, l'ancien « Port Forward ») : WAN, TCP, destination `WAN address:80` → `10.10.10.101:80`, Firewall rule = **Pass**. Avant, le 80 n'était ouvert nulle part du WAN vers le LAN (seuls SSH depuis AWX et ping passaient). Vérifié depuis l'hôte : `http://192.168.122.119/` renvoie la page de `lab-vm-1` (`200`).
+  - Premier essai du formulaire : destination laissée sur « Hôte unique ou réseau », port `any`, Firewall rule « Manuel ». Avec le port `any`, tout le TCP arrivant sur le WAN (y compris l'interface web en 443) serait parti vers `lab-vm-1`. Avec « Manuel », aucune règle de filtrage n'est créée et le trafic redirigé reste bloqué.
+- **Clé API OPNsense** : utilisateur `api-lab`, privilèges limités au pare-feu (règles, NAT, alias), clé rangée sur le poste dans `~/.config/opnsense/apikey.txt` (droits 600, hors du repo). Testée avec `curl` sur `/api/firewall/d_nat/search_rule` et `/api/firewall/filter/search_rule`. Elle servira pour passer OPNsense en Ansible.
+
+- **Étude de cas : site de `lab-vm-1` inaccessible, cause dans OPNsense.** Panne injectée par l'API (port cible de la redirection passé de `80` à `8080`), diagnostic mené de bout en bout :
+  - ping de `.119` correct, `curl` en **refus immédiat** (`Connexion refusée`, 0 ms), pas en délai dépassé. Seul, ce symptôme fait penser à « nginx arrêté ». Mais derrière un NAT, le refus peut venir de la VM, renvoyé à travers la redirection, et le ping, lui, ne teste que le pare-feu
+  - service écarté par une commande ad hoc AWX sur `lab-vm-1` (le poste n'a pas de SSH vers le LAN) : nginx `active`, à l'écoute sur `0.0.0.0:80`, `curl localhost` en `200`
+  - un refus veut dire que le paquet a été livré là où rien n'écoute : la cause est dans la redirection, pas dans une règle de filtrage (un blocage aurait donné un délai dépassé). Dans la règle Destination NAT, **Redirect Target Port = 8080** alors que nginx écoute sur le 80
+  - corrigé dans l'interface (port cible remis sur HTTP, Appliquer), vérifié depuis l'hôte : `200`
+  - procédure complétée : `procedures/service-inaccessible-pare-feu.md`, cas d'un serveur derrière OPNsense
+
 ### Prochaine session
 
-- Étude de cas côté OPNsense : même exercice (service inaccessible) pour `lab-vm-1`, la cause étant cette fois dans l'appliance
+- Recréer la clé API `api-lab` : la clé actuelle est passée en clair dans une session de travail
+- Comparaison avec la version Debian + nftables
 
 ## Décisions
 
@@ -133,6 +148,7 @@ Points notés au démarrage :
   - `.200`–`.249` : plage DHCP
 - **29/09/2026 — AWX reste sur le WAN et atteint le LAN par une route via OPNsense.** Route `10.10.10.0/24 via 192.168.122.119` sur AWX et sur l'hôte, règle WAN SSH limitée à la source AWX. C'est le schéma d'un réseau d'admin qui accède au LAN à travers un pare-feu filtrant. Mettre AWX derrière le pare-feu aurait obligé à router l'hôte et le runner GitHub vers AWX.
 - **29/09/2026 — `lab-vm-2` reste devant le pare-feu, protégée par Ansible.** Deux modèles côte à côte : `lab-vm-1` derrière OPNsense (sécurité périmétrique, règles dans l'appliance) et `lab-vm-2` sur le WAN avec un pare-feu local nftables déployé par AWX (sécurité au niveau de l'hôte, règles versionnées). Le rôle servira aussi pour la version Debian + nftables. Limites assumées : le « WAN » est le réseau NAT de libvirt, pas Internet (menace simulée : une autre machine compromise sur `192.168.122.0/24`) ; en PME, un serveur exposé irait plutôt en DMZ (troisième interface d'OPNsense, `vmbr2`), piste pour plus tard.
+- **05/10/2026 — Site de `lab-vm-1` publié par redirection de port, pas par une simple règle Pass.** Le client ne connaît que l'adresse WAN d'OPNsense, comme en PME avec une IP publique, et la route vers le LAN reste réservée à l'administration. Option Firewall rule = **Pass** (`rdr pass`) : la redirection laisse passer le trafic sans règle dans Règles → WAN. C'est plus simple, mais la règle n'apparaît pas avec les autres règles WAN : pour la retrouver, il faut regarder dans le NAT.
 
 ## Points ouverts
 
