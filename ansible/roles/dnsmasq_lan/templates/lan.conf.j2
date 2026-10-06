@@ -14,7 +14,9 @@ server={{ server }}
 {% endfor %}
 domain={{ dnsmasq_lan_domain }}
 local=/{{ dnsmasq_lan_domain }}/
-expand-hosts
+# Noms uniquement depuis les host-record ci-dessous : le /etc/hosts du pare-feu
+# associe son nom à 127.0.1.1, adresse inutilisable pour un client du LAN.
+no-hosts
 {% for host in dnsmasq_lan_hosts %}
 host-record={{ host.name }}.{{ dnsmasq_lan_domain }},{{ host.name }},{{ host.ip }}
 {% endfor %}
