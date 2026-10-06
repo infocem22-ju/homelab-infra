@@ -1,5 +1,6 @@
 #!/usr/sbin/nft -f
 # {{ ansible_managed }} (rôle host_firewall)
+{% set router = host_firewall_router %}
 
 flush ruleset
 
@@ -29,9 +30,41 @@ table inet filter {
 
     chain forward {
         type filter hook forward priority filter; policy drop;
+{% if router %}
+
+        ct state established,related accept
+        ct state invalid drop
+
+        iifname "{{ router.lan_if }}" oifname "{{ router.wan_if }}" ip saddr {{ router.lan_net }} accept comment "LAN vers l'extérieur"
+{% for rule in router.forward_rules | default([]) %}
+        iifname "{{ router.wan_if }}" ip daddr {{ router.lan_net }} {% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{% if rule.proto | default('tcp') == 'icmp' %}icmp type echo-request{% else %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} }{% endif %} accept comment "{{ rule.name }}"
+{% endfor %}
+        # Le trafic redirigé par la table nat (prerouting) arrive ici avec sa destination LAN.
+        ct status dnat accept comment "Redirections de ports"
+{% if host_firewall_log_drops %}
+
+        limit rate 5/minute log prefix "nft-fwd-drop: "
+{% endif %}
+{% endif %}
     }
 
     chain output {
         type filter hook output priority filter; policy accept;
     }
 }
+{% if router %}
+
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+{% for fwd in router.port_forwards | default([]) %}
+        iifname "{{ router.wan_if }}" {{ fwd.proto | default('tcp') }} dport {{ fwd.port }} dnat to {{ fwd.to }}:{{ fwd.to_port | default(fwd.port) }} comment "{{ fwd.name }}"
+{% endfor %}
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname "{{ router.wan_if }}" ip saddr {{ router.lan_net }} masquerade comment "NAT sortant du LAN"
+    }
+}
+{% endif %}

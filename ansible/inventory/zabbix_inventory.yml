@@ -16,3 +16,5 @@ compose:
 
 groups:
   lab_vms: true
+  # Pare-feu Debian (fw-*) : pas de nginx dessus, le port 80 est redirigé vers le LAN.
+  routers: inventory_hostname is match('fw-')

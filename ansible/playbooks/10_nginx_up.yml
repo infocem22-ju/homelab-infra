@@ -1,6 +1,6 @@
 ---
 - name: Demo - nginx up
-  hosts: all
+  hosts: "all:!routers"
   become: true
   roles:
     - role: nginx_demo

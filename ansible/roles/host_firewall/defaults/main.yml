@@ -21,3 +21,9 @@ host_firewall_log_drops: true
 # Retour arrière automatique : si Ansible n'arrive pas à se reconnecter après
 # l'application des règles, l'ancienne configuration est remise au bout de ce délai.
 host_firewall_rollback_delay: 60
+
+# Mode routeur (pare-feu entre un WAN et un LAN, voir host_vars/fw-debian.yml).
+# Vide = simple pare-feu d'hôte. Clés : wan_if, lan_if, lan_net,
+# forward_rules (même format que host_firewall_rules, du WAN vers le LAN)
+# et port_forwards (name, proto, port, to, to_port facultatif).
+host_firewall_router: {}

@@ -1,0 +1,36 @@
+# Pare-feu Debian + nftables (site B), pendant d'OPNsense : voir docs/pare-feu.md.
+# WAN sur vmbr0 (192.168.122.120), LAN 10.10.20.0/24 sur vmbr2.
+host_firewall_enabled: true
+
+# Le pare-feu lui-même : SSH d'administration seulement.
+host_firewall_rules:
+  - name: SSH depuis AWX et l'hôte
+    proto: tcp
+    port: 22
+    sources:
+      - 192.168.122.148
+      - 192.168.122.1
+
+host_firewall_router:
+  wan_if: ens18
+  lan_if: ens19
+  lan_net: 10.10.20.0/24
+  # Accès d'administration au LAN (route 10.10.20.0/24 via .120 sur AWX et l'hôte).
+  forward_rules:
+    - name: SSH admin vers le LAN
+      proto: tcp
+      port: 22
+      sources:
+        - 192.168.122.148
+        - 192.168.122.1
+    - name: Ping admin vers le LAN
+      proto: icmp
+      sources:
+        - 192.168.122.148
+        - 192.168.122.1
+  # Comme lab-vm-1 derrière OPNsense : le client ne connaît que l'adresse WAN.
+  port_forwards:
+    - name: Site de lab-vm-3
+      proto: tcp
+      port: 80
+      to: 10.10.20.101
