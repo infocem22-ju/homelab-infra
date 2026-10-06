@@ -12,8 +12,8 @@ host_firewall_rules:
       - 192.168.122.1
 
 host_firewall_router:
-  wan_if: ens18
-  lan_if: ens19
+  wan_if: eth0
+  lan_if: eth1
   lan_net: 10.10.20.0/24
   # Accès d'administration au LAN (route 10.10.20.0/24 via .120 sur AWX et l'hôte).
   forward_rules:
