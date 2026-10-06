@@ -133,9 +133,54 @@ Points notés au démarrage :
   - corrigé dans l'interface (port cible remis sur HTTP, Appliquer), vérifié depuis l'hôte : `200`
   - procédure complétée : `procedures/service-inaccessible-pare-feu.md`, cas d'un serveur derrière OPNsense
 
+### 06/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX). OPNsense, `lab-vm-1` et `lab-vm-2` démarrent seules avec Proxmox ; `lab-crash-1` reste éteinte.
+- **Pare-feu Debian + nftables monté en site B, à côté d'OPNsense** (voir Décisions) :
+
+  ```
+              hôte 192.168.122.1 / AWX .148
+                       │ vmbr0 (WAN)
+          ┌────────────┴────────────┐
+     OPNsense .119             fw-debian .120
+     10.10.10.1                10.10.20.1
+          │ vmbr1                   │ vmbr2
+     lab-vm-1 .101             lab-vm-3 .101
+     lab-crash-1 .50
+  ```
+
+  - bridge `vmbr2` créé à la main dans Proxmox (sans IP ni port)
+  - VMs `fw-debian` (VM 120, deux cartes : `vmbr0` en `192.168.122.120`, `vmbr2` en `10.10.20.1`) et `lab-vm-3` (VM 121, `10.10.20.101`, passerelle `10.10.20.1`, DNS de libvirt `192.168.122.1` joint à travers le NAT) créées par `proxmox_provision_vms.yml` (Job Template `lab-vms-provision`)
+  - **mode routeur du rôle `host_firewall`**, activé dans `inventory/host_vars/fw-debian.yml`. Le même rôle sert au pare-feu d'hôte de `lab-vm-2`, avec le même retour arrière automatique. Il ajoute le routage IP (`net.ipv4.ip_forward`), une chaîne `forward` en `policy drop` et une table `ip nat`
+  - premier passage depuis le poste (`ansible-playbook -i ansible/inventory/lab_vms_static.yml ansible/playbooks/40_host_firewall.yml -l fw-debian`), puis par le pipeline : aucun changement, la configuration versionnée et la configuration en place sont identiques
+- **Correspondance OPNsense → nftables** :
+
+  | Fonction | OPNsense (site A) | `fw-debian` (site B) |
+  |---|---|---|
+  | Politique par défaut | blocage implicite en fin de règles | `policy drop` sur `input` et `forward` |
+  | Filtrage stateful | table d'états de `pf`, implicite | `ct state established,related accept`, `ct state invalid drop`, en tête de chaîne |
+  | NAT sortant | Outbound NAT automatique | `oifname "eth0" ip saddr 10.10.20.0/24 masquerade` |
+  | Redirection de port | Destination NAT, Firewall rule = Pass | `dnat to 10.10.20.101:80` en `prerouting`, puis `ct status dnat accept` dans `forward` |
+  | Admin du LAN depuis AWX | règle WAN SSH depuis `.148` | règles `forward` SSH et ping depuis `.148` et `.1` |
+  | Accès au pare-feu | GUI et SSH depuis `.1` | SSH depuis `.148` et `.1` (`input`) |
+  | DHCP/DNS du LAN | Dnsmasq intégré | pas encore (IP fixes par cloud-init, DNS de libvirt) |
+  | Où vit la config | dans l'appliance (`config.xml`) | dans le repo, déployée par AWX |
+
+  Différence importante pour la redirection : dans `pf`, `rdr pass` crée la règle de filtrage en même temps. Dans nftables, la traduction (table `nat`) et le filtrage (chaîne `forward`) sont deux étapes séparées. Sans `ct status dnat accept`, le paquet redirigé est bloqué par la `policy drop` de `forward`.
+- Routes vers `10.10.20.0/24` via `192.168.122.120`, comme pour le site A : sur l'hôte (à chaud, et `<route>` ajoutée au réseau libvirt `default` par `net-dumpxml`/`net-define`, sans éditeur) et sur AWX (lignes `up`/`down` dans la section `enp1s0`, vérifié avec `sudo ifquery enp1s0`)
+- `fw-debian` et `lab-vm-3` inscrites dans Zabbix (groupe 27, modèle Linux by Zabbix agent active, API `host.create`) : elles entrent ainsi dans l'inventaire AWX et dans le pipeline. Le groupe `routers` (`fw-*`, `inventory/zabbix_inventory.yml`) les exclut de nginx.
+- **Vérifié** :
+  - `lab-vm-3` → Internet : ping `1.1.1.1`, résolution DNS, `http://deb.debian.org/` en `200`
+  - poste → `lab-vm-3` : ping et SSH (règles `forward` d'administration)
+  - avant nginx, `curl http://192.168.122.120/` est refusé en 0 ms : la redirection livre bien le paquet à `lab-vm-3`, où rien n'écoute (même lecture que l'étude de cas du 05/10)
+  - `lab-site` (job 125) : `fw-debian`, `lab-vm-1`, `lab-vm-2`, `lab-vm-3` sans échec. `http://192.168.122.120/` renvoie la page de `lab-vm-3`, et `http://192.168.122.119/` celle de `lab-vm-1`
+  - Zabbix : agent actif disponible sur `fw-debian` et `lab-vm-3`
+
 ### Prochaine session
 
-- Comparaison avec la version Debian + nftables
+- `fw-debian` : DHCP/DNS du LAN avec dnsmasq, pour rejoindre OPNsense sur ce point
+- Étude de cas sur `fw-debian` (panne nftables injectée, même format que le 05/10)
+- Puis, dans l'ordre : DMZ (`vmbr3`), VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
 
 ## Décisions
 
@@ -149,11 +194,17 @@ Points notés au démarrage :
 - **29/09/2026 — `lab-vm-2` reste devant le pare-feu, protégée par Ansible.** Deux modèles côte à côte : `lab-vm-1` derrière OPNsense (sécurité périmétrique, règles dans l'appliance) et `lab-vm-2` sur le WAN avec un pare-feu local nftables déployé par AWX (sécurité au niveau de l'hôte, règles versionnées). Le rôle servira aussi pour la version Debian + nftables. Limites assumées : le « WAN » est le réseau NAT de libvirt, pas Internet (menace simulée : une autre machine compromise sur `192.168.122.0/24`) ; en PME, un serveur exposé irait plutôt en DMZ (troisième interface d'OPNsense, `vmbr2`), piste pour plus tard.
 - **05/10/2026 — Site de `lab-vm-1` publié par redirection de port, pas par une simple règle Pass.** Le client ne connaît que l'adresse WAN d'OPNsense, comme en PME avec une IP publique, et la route vers le LAN reste réservée à l'administration. Option Firewall rule = **Pass** (`rdr pass`) : la redirection laisse passer le trafic sans règle dans Règles → WAN. C'est plus simple, mais la règle n'apparaît pas avec les autres règles WAN : pour la retrouver, il faut regarder dans le NAT.
 
+- **06/10/2026 — Debian + nftables en site B parallèle, pas à la place d'OPNsense.** Nouveau LAN `10.10.20.0/24` sur `vmbr2` : les deux pare-feu tournent côte à côte, ce qui permet de les comparer en direct sans couper `lab-vm-1`, et prépare un IPsec site-à-site entre les deux. La DMZ prévue sur `vmbr2` passe donc sur `vmbr3`.
+- **06/10/2026 — Mode routeur ajouté au rôle `host_firewall`, pas de nouveau rôle.** Même gabarit, même retour arrière automatique : un hôte reste un pare-feu d'hôte tant que `host_firewall_router` est vide. Interfaces nommées dans `host_vars` (et vérifiées par une assertion) plutôt que devinées depuis les faits.
+
 ## Points ouverts
 
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
+
+- **Provisioning : `500 Internal Server Error: no options specified` sur la carte réseau (06/10/2026).** Les clones `fw-debian` et `lab-vm-3` étaient créés, puis l'étape qui branche `net0` échouait. Premier diagnostic faux (une liste de cartes construite par une expression Jinja) : l'erreur est restée avec un simple `net0`. Vraie cause : par sécurité, `proxmox_kvm` retire `net` des mises à jour, sauf avec `update_unsafe: true`. La requête partait donc vide. Avec cette version du module, le playbook ne pouvait donc pas changer `net0`. `lab-vm-1` avait d'ailleurs été passée sur `vmbr1` à la main. Correction : `update_unsafe: true`, et la tâche lit d'abord la config (`proxmox_vm_info`). Elle ne réécrit une carte que si le bridge diffère, et elle garde sa MAC, ce qui évite un nouveau bail DHCP. Elle n'a donc plus besoin de se limiter à un clone neuf, et elle a corrigé les VMs existantes sans les recréer.
+- **Interfaces `eth0`/`eth1` sur `fw-debian`, pas `ens18`/`ens19` (06/10/2026).** L'image cloud du template garde les anciens noms. Relevé par SSH avant le premier passage du rôle (`ip -br a`). L'assertion `Check router interfaces` l'aurait aussi bloqué avant tout changement.
 
 - **Clavier repassé en QWERTY après l'installation.** Le clavier choisi dans l'installeur ne vaut que pour l'installeur. Solution temporaire dans le shell : `kbdcontrol -l fr` (en QWERTY, le `-` est sur la touche `)`). Solution durable : System → Settings → Administration, rubrique Console. **Constaté le 30/09/2026 : le clavier est resté en français après redémarrage, le `kbdcontrol -l fr` a tenu. Plus rien à faire.**
 
