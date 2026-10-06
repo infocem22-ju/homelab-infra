@@ -163,7 +163,7 @@ Points notés au démarrage :
   | Redirection de port | Destination NAT, Firewall rule = Pass | `dnat to 10.10.20.101:80` en `prerouting`, puis `ct status dnat accept` dans `forward` |
   | Admin du LAN depuis AWX | règle WAN SSH depuis `.148` | règles `forward` SSH et ping depuis `.148` et `.1` |
   | Accès au pare-feu | GUI et SSH depuis `.1` | SSH depuis `.148` et `.1` (`input`) |
-  | DHCP/DNS du LAN | Dnsmasq intégré | pas encore (IP fixes par cloud-init, DNS de libvirt) |
+  | DHCP/DNS du LAN | Dnsmasq intégré | dnsmasq, rôle `dnsmasq_lan` (ajouté le même jour, voir plus bas) |
   | Où vit la config | dans l'appliance (`config.xml`) | dans le repo, déployée par AWX |
 
   Différence importante pour la redirection : dans `pf`, `rdr pass` crée la règle de filtrage en même temps. Dans nftables, la traduction (table `nat`) et le filtrage (chaîne `forward`) sont deux étapes séparées. Sans `ct status dnat accept`, le paquet redirigé est bloqué par la `policy drop` de `forward`.
@@ -176,9 +176,21 @@ Points notés au démarrage :
   - `lab-site` (job 125) : `fw-debian`, `lab-vm-1`, `lab-vm-2`, `lab-vm-3` sans échec. `http://192.168.122.120/` renvoie la page de `lab-vm-3`, et `http://192.168.122.119/` celle de `lab-vm-1`
   - Zabbix : agent actif disponible sur `fw-debian` et `lab-vm-3`
 
+- **DHCP/DNS du LAN sur `fw-debian` (dnsmasq)**, comme le Dnsmasq d'OPNsense sur le site A :
+  - rôle `dnsmasq_lan` (playbook `35_dnsmasq_lan.yml`, groupe `routers`, dans `lab_site.yml` avant le pare-feu). DHCP `10.10.20.200`–`.249` (bail 12 h), passerelle et DNS = `10.10.20.1`. Domaine local `siteb.lab`, noms déclarés en `host-record`, le reste transmis à libvirt (`192.168.122.1`)
+  - dnsmasq n'écoute que sur `eth1` (`interface`, `except-interface=lo`, `bind-interfaces`). systemd-resolved garde `127.0.0.53`, et rien n'est exposé côté WAN. La configuration est posée avant le paquet : sans `bind-interfaces`, dnsmasq écouterait sur toutes les adresses et son premier démarrage échouerait sur le port 53 déjà pris
+  - `host_firewall` : les règles `input` acceptent un `iif`. DNS (UDP/TCP 53) et DHCP (UDP 67) sont ouverts seulement depuis `eth1`
+  - `lab-vm-3` garde son IP fixe, mais son DNS passe sur `10.10.20.1` (cloud-init, `proxmox_provision_vms.yml`)
+  - **vérifié** :
+    - échange DHCP complet depuis `lab-vm-3` avec `udhcpc` en mode test (`-s /bin/true`, l'IP fixe n'est pas touchée) : bail `10.10.20.234` donné par `10.10.20.1`. `udhcpc` a été désinstallé ensuite
+    - depuis `lab-vm-3` : `fw-debian.siteb.lab` → `10.10.20.1`, `lab-vm-3.siteb.lab` → `10.10.20.101`, `deb.debian.org` résolu et en `200`
+    - depuis le poste (WAN) : DNS sur `192.168.122.120` en délai dépassé (bloqué)
+    - `lab-site` (job 141) sans échec sur les 4 VMs
+
 ### Prochaine session
 
-- `fw-debian` : DHCP/DNS du LAN avec dnsmasq, pour rejoindre OPNsense sur ce point
+- Relancer le runner GitHub (`~/actions-runner/run.sh`) et décider du sort des runs restés en file (voir Problèmes rencontrés)
+
 - Étude de cas sur `fw-debian` (panne nftables injectée, même format que le 05/10)
 - Puis, dans l'ordre : DMZ (`vmbr3`), VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
 
@@ -202,6 +214,11 @@ Points notés au démarrage :
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
+
+- **Nouvelles VMs injoignables par AWX : `172.20.0.1` dans l'inventaire (06/10/2026).** Création des hôtes `fw-debian` et `lab-vm-3` dans Zabbix par l'API, avec leur vraie IP. À la première connexion de l'agent actif, l'action « Auto-register lab VMs » (métadonnées `lab-vm`) a réécrit l'interface avec l'adresse source vue par le serveur : `172.20.0.1`, la passerelle du réseau Docker `homelab-zabbix_default`. Le trafic de l'agent vers le serveur Zabbix conteneurisé est traduit (NAT) sur l'hôte. L'inventaire AWX prend `ansible_host` dans cette interface, d'où le délai dépassé en SSH. Correction : IP remises par `hostinterface.update`, comme pour `lab-crash-1` le 01/10. Elles tiennent, car l'auto-enregistrement ne rejoue que si les données de connexion de l'agent changent. À retenir : après l'inscription d'une VM, vérifier l'IP de son interface dans Zabbix.
+- **DNS de `lab-vm-3` inchangé après redémarrage (06/10/2026).** Le changement de DNS dans cloud-init n'est pas pris en compte par un `reboot` lancé depuis la VM : le processus QEMU reste le même, et Proxmox ne régénère le lecteur cloud-init qu'au démarrage de la VM. Il faut un arrêt complet (`poweroff`) puis un démarrage, fait ici par `lab-vms-provision` (tâche « Démarrer les VMs »). Effet attendu ensuite : la configuration a changé, donc l'instance-id aussi, et cloud-init régénère les clés d'hôte SSH. D'où l'alerte « REMOTE HOST IDENTIFICATION HAS CHANGED », réglée par `ssh-keygen -R 10.10.20.101`.
+- **`fw-debian.siteb.lab` résolu aussi en `127.0.1.1` (06/10/2026).** dnsmasq publie par défaut le `/etc/hosts` du pare-feu, où Debian associe son nom à `127.0.1.1`. Correction : `no-hosts`. Seuls les `host-record` versionnés comptent.
+- **Runner GitHub arrêté, runs en file depuis le matin (06/10/2026).** Au démarrage de la stack, le contrôle `pgrep -f actions-runner` avait conclu que le runner tournait. C'était un faux positif : `pgrep` trouvait la ligne de commande du contrôle lui-même. Les pushs du jour ont mis les runs « Ansible deploy » et « Hello World » en file sans les lancer. Les déploiements ont été faits en lançant directement le Job Template `lab-site` dans AWX. Contrôle fiable : `pgrep -f Runner.Listener`.
 
 - **Provisioning : `500 Internal Server Error: no options specified` sur la carte réseau (06/10/2026).** Les clones `fw-debian` et `lab-vm-3` étaient créés, puis l'étape qui branche `net0` échouait. Premier diagnostic faux (une liste de cartes construite par une expression Jinja) : l'erreur est restée avec un simple `net0`. Vraie cause : par sécurité, `proxmox_kvm` retire `net` des mises à jour, sauf avec `update_unsafe: true`. La requête partait donc vide. Avec cette version du module, le playbook ne pouvait donc pas changer `net0`. `lab-vm-1` avait d'ailleurs été passée sur `vmbr1` à la main. Correction : `update_unsafe: true`, et la tâche lit d'abord la config (`proxmox_vm_info`). Elle ne réécrit une carte que si le bridge diffère, et elle garde sa MAC, ce qui évite un nouveau bail DHCP. Elle n'a donc plus besoin de se limiter à un clone neuf, et elle a corrigé les VMs existantes sans les recréer.
 - **Interfaces `eth0`/`eth1` sur `fw-debian`, pas `ens18`/`ens19` (06/10/2026).** L'image cloud du template garde les anciens noms. Relevé par SSH avant le premier passage du rôle (`ip -br a`). L'assertion `Check router interfaces` l'aurait aussi bloqué avant tout changement.
