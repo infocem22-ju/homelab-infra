@@ -71,9 +71,8 @@
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ item.item.newid }}"
-        net: >-
-          {{ {'net0': 'virtio,bridge=' ~ item.item.bridge}
-             | combine({'net1': 'virtio,bridge=' ~ item.item.lan_bridge} if item.item.lan_bridge is defined else {}) }}
+        net:
+          net0: "virtio,bridge={{ item.item.bridge }}"
         state: present
         update: true
       loop: "{{ clone_result.results }}"
@@ -81,18 +80,42 @@
         label: "{{ item.item.name }}"
       when: item.changed
 
+    # Deuxième carte (LAN) pour un pare-feu ; même règle : clone neuf uniquement.
+    - name: Ajouter la carte LAN
+      community.proxmox.proxmox_kvm:
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.item.newid }}"
+        net:
+          net1: "virtio,bridge={{ item.item.lan_bridge }}"
+        state: present
+        update: true
+      loop: "{{ clone_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.changed and item.item.lan_bridge is defined
+
     - name: Configurer cloud-init (IP fixe + gateway + DNS)
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ item.newid }}"
-        ipconfig: >-
-          {{ {'ipconfig0': 'ip=' ~ item.ip ~ ',gw=' ~ item.gw}
-             | combine({'ipconfig1': 'ip=' ~ item.lan_ip} if item.lan_ip is defined else {}) }}
+        ipconfig:
+          ipconfig0: "ip={{ item.ip }},gw={{ item.gw }}"
         nameservers:
           - "{{ item.dns }}"
         state: present
         update: true
       loop: "{{ vms }}"
+
+    - name: Configurer cloud-init (IP de la carte LAN)
+      community.proxmox.proxmox_kvm:
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        ipconfig:
+          ipconfig1: "ip={{ item.lan_ip }}"
+        state: present
+        update: true
+      loop: "{{ vms }}"
+      when: item.lan_ip is defined
 
     - name: Démarrer les VMs
       community.proxmox.proxmox_kvm:
