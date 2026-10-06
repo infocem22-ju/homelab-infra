@@ -1,0 +1,27 @@
+# {{ ansible_managed }} (rôle dnsmasq_lan)
+
+# Uniquement sur le LAN : systemd-resolved garde 127.0.0.53, et rien n'écoute côté WAN.
+interface={{ dnsmasq_lan_interface }}
+except-interface=lo
+bind-interfaces
+
+# DNS
+domain-needed
+bogus-priv
+no-resolv
+{% for server in dnsmasq_lan_upstream %}
+server={{ server }}
+{% endfor %}
+domain={{ dnsmasq_lan_domain }}
+local=/{{ dnsmasq_lan_domain }}/
+expand-hosts
+{% for host in dnsmasq_lan_hosts %}
+host-record={{ host.name }}.{{ dnsmasq_lan_domain }},{{ host.name }},{{ host.ip }}
+{% endfor %}
+
+# DHCP : passerelle et DNS = le pare-feu
+dhcp-range={{ dnsmasq_lan_dhcp_range.start }},{{ dnsmasq_lan_dhcp_range.end }},{{ dnsmasq_lan_dhcp_range.lease }}
+dhcp-option=option:router,{{ dnsmasq_lan_address }}
+dhcp-option=option:dns-server,{{ dnsmasq_lan_address }}
+dhcp-authoritative
+log-dhcp

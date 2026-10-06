@@ -1,0 +1,31 @@
+---
+# Configuration posée avant le paquet : sans bind-interfaces, dnsmasq démarre sur toutes
+# les adresses, se heurte à systemd-resolved (port 53) et l'installation échoue.
+- name: Create dnsmasq config directory
+  ansible.builtin.file:
+    path: /etc/dnsmasq.d
+    state: directory
+    mode: "0755"
+
+- name: Deploy dnsmasq LAN config
+  ansible.builtin.template:
+    src: lan.conf.j2
+    dest: /etc/dnsmasq.d/lan.conf
+    mode: "0644"
+  notify: Restart dnsmasq
+
+- name: Install dnsmasq
+  ansible.builtin.apt:
+    name: dnsmasq
+    state: present
+    update_cache: true
+
+- name: Check dnsmasq config
+  ansible.builtin.command: dnsmasq --test --conf-file=/etc/dnsmasq.conf --conf-dir=/etc/dnsmasq.d,.dpkg-dist,.dpkg-old,.dpkg-new
+  changed_when: false
+
+- name: Enable dnsmasq
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    enabled: true
+    state: started

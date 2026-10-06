@@ -10,6 +10,19 @@ host_firewall_rules:
     sources:
       - 192.168.122.148
       - 192.168.122.1
+  # Services du LAN (rôle dnsmasq_lan), jamais côté WAN.
+  - name: DNS du LAN (UDP)
+    proto: udp
+    port: 53
+    iif: eth1
+  - name: DNS du LAN (TCP)
+    proto: tcp
+    port: 53
+    iif: eth1
+  - name: DHCP du LAN
+    proto: udp
+    port: 67
+    iif: eth1
 
 host_firewall_router:
   wan_if: eth0
@@ -34,3 +47,13 @@ host_firewall_router:
       proto: tcp
       port: 80
       to: 10.10.20.101
+
+# DHCP et DNS du LAN, comme le Dnsmasq d'OPNsense sur le site A.
+dnsmasq_lan_interface: eth1
+dnsmasq_lan_address: 10.10.20.1
+dnsmasq_lan_domain: siteb.lab
+dnsmasq_lan_hosts:
+  - name: fw-debian
+    ip: 10.10.20.1
+  - name: lab-vm-3
+    ip: 10.10.20.101

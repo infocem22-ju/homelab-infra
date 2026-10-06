@@ -3,7 +3,8 @@
 host_firewall_enabled: false
 
 # Entrée bloquée par défaut : seules ces règles ouvrent un port.
-# sources absent = ouvert à tous ; port = un numéro ou une liste.
+# sources absent = ouvert à tous ; port = un numéro ou une liste ;
+# iif (facultatif) = seulement depuis cette interface.
 host_firewall_rules:
   - name: SSH depuis AWX et l'hôte
     proto: tcp

@@ -1,0 +1,7 @@
+---
+# DHCP et DNS du LAN sur les pare-feu Debian (groupe routers).
+- name: LAN - dnsmasq (DHCP + DNS)
+  hosts: routers
+  become: true
+  roles:
+    - role: dnsmasq_lan

@@ -1,0 +1,14 @@
+---
+# DHCP et DNS pour le LAN d'un pare-feu Debian (voir host_vars/fw-debian.yml).
+dnsmasq_lan_interface: eth1
+dnsmasq_lan_address: 10.10.20.1
+dnsmasq_lan_dhcp_range:
+  start: 10.10.20.200
+  end: 10.10.20.249
+  lease: 12h
+dnsmasq_lan_domain: siteb.lab
+# Résolveurs vers lesquels partent les noms hors du domaine local.
+dnsmasq_lan_upstream:
+  - 192.168.122.1
+# Noms du LAN, y compris les machines en IP fixe (name, ip).
+dnsmasq_lan_hosts: []

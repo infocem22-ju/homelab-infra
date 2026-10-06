@@ -20,7 +20,7 @@ table inet filter {
         icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
 
 {% for rule in host_firewall_rules %}
-        {% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} } accept comment "{{ rule.name }}"
+        {% if rule.iif is defined %}iifname "{{ rule.iif }}" {% endif %}{% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} } accept comment "{{ rule.name }}"
 {% endfor %}
 {% if host_firewall_log_drops %}
 

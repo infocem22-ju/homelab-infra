@@ -12,7 +12,7 @@
     # lab-vm-1 : LAN derrière OPNsense (vmbr1, passerelle et DNS = 10.10.10.1).
     # lab-vm-2 : reste côté WAN (vmbr0), protégée par son propre pare-feu (voir docs/pare-feu.md).
     # fw-debian : pare-feu Debian + nftables (site B), WAN sur vmbr0, LAN 10.10.20.0/24 sur vmbr2 (lan_*).
-    # lab-vm-3 : LAN derrière fw-debian. DNS de libvirt, joint à travers le NAT de fw-debian.
+    # lab-vm-3 : LAN derrière fw-debian, qui lui sert aussi de DNS (dnsmasq).
     vms:
       - name: lab-vm-1
         newid: 101
@@ -39,7 +39,7 @@
         bridge: vmbr2
         ip: 10.10.20.101/24
         gw: 10.10.20.1
-        dns: 192.168.122.1
+        dns: 10.10.20.1
 
   tasks:
     - name: Vérifier que l'auth Proxmox est fournie par l'environnement
