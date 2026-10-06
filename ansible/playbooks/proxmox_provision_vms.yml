@@ -66,33 +66,55 @@
       loop: "{{ vms }}"
       register: clone_result
 
-    # Uniquement sur un clone neuf : réécrire net0 sans MAC en génère une nouvelle à chaque passage.
+    - name: Lire la configuration réseau des VMs
+      community.proxmox.proxmox_vm_info:
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        config: current
+      loop: "{{ vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: vm_info
+
+    # On ne réécrit une carte que si elle n'est pas sur le bon bridge, en gardant sa MAC :
+    # une carte réécrite sans MAC en reçoit une nouvelle (et le bail DHCP change).
+    # update_unsafe : sans lui, proxmox_kvm retire `net` de la mise à jour (erreur « no options specified »).
     - name: Brancher la carte réseau sur le bon bridge
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ item.item.newid }}"
         net:
-          net0: "virtio,bridge={{ item.item.bridge }}"
+          net0: "virtio{{ ('=' ~ nic_mac) if nic_mac else '' }},bridge={{ item.item.bridge }}"
         state: present
         update: true
-      loop: "{{ clone_result.results }}"
+        update_unsafe: true
+      loop: "{{ vm_info.results }}"
       loop_control:
         label: "{{ item.item.name }}"
-      when: item.changed
+      vars:
+        nic_conf: "{{ item.proxmox_vms[0].config.net0 | default('') }}"
+        nic_mac: "{{ nic_conf | regex_search('virtio=([0-9A-Fa-f:]{17})', '\\1') | default([''], true) | first }}"
+      when: nic_conf is not search('bridge=' ~ item.item.bridge ~ '(,|$)')
 
-    # Deuxième carte (LAN) pour un pare-feu ; même règle : clone neuf uniquement.
-    - name: Ajouter la carte LAN
+    # Deuxième carte (LAN), pour un pare-feu.
+    - name: Brancher la carte LAN
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ item.item.newid }}"
         net:
-          net1: "virtio,bridge={{ item.item.lan_bridge }}"
+          net1: "virtio{{ ('=' ~ nic_mac) if nic_mac else '' }},bridge={{ item.item.lan_bridge }}"
         state: present
         update: true
-      loop: "{{ clone_result.results }}"
+        update_unsafe: true
+      loop: "{{ vm_info.results }}"
       loop_control:
         label: "{{ item.item.name }}"
-      when: item.changed and item.item.lan_bridge is defined
+      vars:
+        nic_conf: "{{ item.proxmox_vms[0].config.net1 | default('') }}"
+        nic_mac: "{{ nic_conf | regex_search('virtio=([0-9A-Fa-f:]{17})', '\\1') | default([''], true) | first }}"
+      when:
+        - item.item.lan_bridge is defined
+        - nic_conf is not search('bridge=' ~ item.item.lan_bridge ~ '(,|$)')
 
     - name: Configurer cloud-init (IP fixe + gateway + DNS)
       community.proxmox.proxmox_kvm:
