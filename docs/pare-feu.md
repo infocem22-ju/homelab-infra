@@ -187,12 +187,22 @@ Points notés au démarrage :
     - depuis le poste (WAN) : DNS sur `192.168.122.120` en délai dépassé (bloqué)
     - `lab-site` (job 141) sans échec sur les 4 VMs
 
+### 09/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX). OPNsense, `lab-vm-1` et `lab-vm-2` démarrent seules. `fw-debian` et `lab-vm-3`, non : démarrées par `lab-vms-provision` (job 169, aucun échec).
+- Runner GitHub relancé (`~/actions-runner/run.sh`, détaché avec `setsid nohup`). Plus aucun run en file : ceux du 06/10 étaient déjà terminés. Le contrôle `pgrep -f Runner.Listener` a encore donné un faux positif (voir Problèmes rencontrés).
+- **Étude de cas : site B inaccessible, routage IP coupé sur `fw-debian`.** Panne injectée à la main (`sysctl -w net.ipv4.ip_forward=0`), diagnostic mené de bout en bout :
+  - `curl http://192.168.122.120/` en délai dépassé, ping du pare-feu correct : paquet jeté, pas service arrêté (un refus serait revenu à travers le DNAT)
+  - chemin coupé en deux : depuis `fw-debian`, `curl http://10.10.20.101/` en `200`. `lab-vm-3` et nginx vont bien, la panne est dans le pare-feu
+  - `nft list ruleset` conforme au fichier : `dnat` et `ct status dnat accept` présents
+  - `sysctl net.ipv4.ip_forward` = `0`, alors que `99-host-firewall-router.conf` dit `1`. Le noyau jette le trafic routé avant la chaîne `forward`. Ping, SSH et `curl` depuis le pare-feu passent quand même, car ils ne sont pas routés
+  - corrigé par `sudo sysctl -p /etc/sysctl.d/99-host-firewall-router.conf`, vérifié depuis le poste : `200`
+  - procédure complétée : `procedures/service-inaccessible-pare-feu.md`, cas d'un routeur Debian
+- **Même faiblesse du rôle que le 30/09, sur un autre réglage** : la tâche `Apply IPv4 forwarding` ne jouait que si le fichier `sysctl.d` changeait. Le pipeline serait donc sorti en succès, sans réparer le routage. Corrigé : le rôle lit `net.ipv4.ip_forward` dans le noyau et le réapplique s'il n'est pas à `1`. Vérifié depuis le poste : panne réinjectée, un passage du rôle la répare (`changed`), le suivant ne change rien.
+
 ### Prochaine session
 
-- Relancer le runner GitHub (`~/actions-runner/run.sh`) et décider du sort des runs restés en file (voir Problèmes rencontrés)
-
-- Étude de cas sur `fw-debian` (panne nftables injectée, même format que le 05/10)
-- Puis, dans l'ordre : DMZ (`vmbr3`), VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
+- Dans l'ordre : DMZ (`vmbr3`), VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
 
 ## Décisions
 
@@ -218,7 +228,7 @@ Points notés au démarrage :
 - **Nouvelles VMs injoignables par AWX : `172.20.0.1` dans l'inventaire (06/10/2026).** Création des hôtes `fw-debian` et `lab-vm-3` dans Zabbix par l'API, avec leur vraie IP. À la première connexion de l'agent actif, l'action « Auto-register lab VMs » (métadonnées `lab-vm`) a réécrit l'interface avec l'adresse source vue par le serveur : `172.20.0.1`, la passerelle du réseau Docker `homelab-zabbix_default`. Le trafic de l'agent vers le serveur Zabbix conteneurisé est traduit (NAT) sur l'hôte. L'inventaire AWX prend `ansible_host` dans cette interface, d'où le délai dépassé en SSH. Correction : IP remises par `hostinterface.update`, comme pour `lab-crash-1` le 01/10. Elles tiennent, car l'auto-enregistrement ne rejoue que si les données de connexion de l'agent changent. À retenir : après l'inscription d'une VM, vérifier l'IP de son interface dans Zabbix.
 - **DNS de `lab-vm-3` inchangé après redémarrage (06/10/2026).** Le changement de DNS dans cloud-init n'est pas pris en compte par un `reboot` lancé depuis la VM : le processus QEMU reste le même, et Proxmox ne régénère le lecteur cloud-init qu'au démarrage de la VM. Il faut un arrêt complet (`poweroff`) puis un démarrage, fait ici par `lab-vms-provision` (tâche « Démarrer les VMs »). Effet attendu ensuite : la configuration a changé, donc l'instance-id aussi, et cloud-init régénère les clés d'hôte SSH. D'où l'alerte « REMOTE HOST IDENTIFICATION HAS CHANGED », réglée par `ssh-keygen -R 10.10.20.101`.
 - **`fw-debian.siteb.lab` résolu aussi en `127.0.1.1` (06/10/2026).** dnsmasq publie par défaut le `/etc/hosts` du pare-feu, où Debian associe son nom à `127.0.1.1`. Correction : `no-hosts`. Seuls les `host-record` versionnés comptent.
-- **Runner GitHub arrêté, runs en file depuis le matin (06/10/2026).** Au démarrage de la stack, le contrôle `pgrep -f actions-runner` avait conclu que le runner tournait. C'était un faux positif : `pgrep` trouvait la ligne de commande du contrôle lui-même. Les pushs du jour ont mis les runs « Ansible deploy » et « Hello World » en file sans les lancer. Les déploiements ont été faits en lançant directement le Job Template `lab-site` dans AWX. Contrôle fiable : `pgrep -f Runner.Listener`.
+- **Runner GitHub arrêté, runs en file depuis le matin (06/10/2026).** Au démarrage de la stack, le contrôle `pgrep -f actions-runner` avait conclu que le runner tournait. C'était un faux positif : `pgrep` trouvait la ligne de commande du contrôle lui-même. Les pushs du jour ont mis les runs « Ansible deploy » et « Hello World » en file sans les lancer. Les déploiements ont été faits en lançant directement le Job Template `lab-site` dans AWX. Contrôle fiable : `pgrep -f Runner.Listener`. **Faux aussi (09/10/2026)** : lancé dans un `bash -c`, `pgrep -f` voit `Runner.Listener` dans la ligne de commande du shell qui l'exécute, et le PID renvoyé n'existait déjà plus. Contrôle fiable : `pgrep -x Runner.Listener`, qui compare le nom du processus et pas sa ligne de commande.
 
 - **Provisioning : `500 Internal Server Error: no options specified` sur la carte réseau (06/10/2026).** Les clones `fw-debian` et `lab-vm-3` étaient créés, puis l'étape qui branche `net0` échouait. Premier diagnostic faux (une liste de cartes construite par une expression Jinja) : l'erreur est restée avec un simple `net0`. Vraie cause : par sécurité, `proxmox_kvm` retire `net` des mises à jour, sauf avec `update_unsafe: true`. La requête partait donc vide. Avec cette version du module, le playbook ne pouvait donc pas changer `net0`. `lab-vm-1` avait d'ailleurs été passée sur `vmbr1` à la main. Correction : `update_unsafe: true`, et la tâche lit d'abord la config (`proxmox_vm_info`). Elle ne réécrit une carte que si le bridge diffère, et elle garde sa MAC, ce qui évite un nouveau bail DHCP. Elle n'a donc plus besoin de se limiter à un clone neuf, et elle a corrigé les VMs existantes sans les recréer.
 - **Interfaces `eth0`/`eth1` sur `fw-debian`, pas `ens18`/`ens19` (06/10/2026).** L'image cloud du template garde les anciens noms. Relevé par SSH avant le premier passage du rôle (`ip -br a`). L'assertion `Check router interfaces` l'aurait aussi bloqué avant tout changement.

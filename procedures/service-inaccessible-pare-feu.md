@@ -150,10 +150,54 @@ curl -s -o /dev/null -w '%{http_code}\n' http://192.168.122.119/
 
 ---
 
+## Cas d'un serveur derrière un routeur Debian (nftables)
+
+Dans le lab, le site de `lab-vm-3` (`10.10.20.101`, LAN du site B) est publié par `fw-debian` : `dnat to 10.10.20.101:80` en `prerouting`, puis `ct status dnat accept` dans `forward`.
+
+### Ce qui change dans la lecture du symptôme
+
+- **Le pare-feu peut répondre alors que rien ne traverse** : ping et SSH vers `fw-debian`, `curl` depuis `fw-debian` vers le LAN passent par `input` et `output`. Seul le trafic **routé** (WAN ↔ LAN) passe par `forward`
+- **Des règles nftables parfaites ne suffisent pas** : sans routage IP dans le noyau, le paquet est jeté avant même la chaîne `forward`, sans trace dans `nft-drop:`
+- Indice qui pointe vers le routage : le site B est en délai dépassé **et** `lab-vm-3` a perdu Internet. Les deux sens sont coupés en même temps
+
+### Diagnostic
+
+1. Depuis le client : `ping -c 2 192.168.122.120` puis `curl -v -m 5 http://192.168.122.120/` (délai dépassé)
+2. Couper le chemin en deux, depuis `fw-debian` (SSH ouvert depuis le poste) :
+
+   ```bash
+   ping -c 2 10.10.20.101
+   curl -s -o /dev/null -w '%{http_code}\n' http://10.10.20.101/
+   ```
+
+   Si ça répond, `lab-vm-3` et nginx vont bien : la panne est dans `fw-debian`, entre `eth0` et `eth1`
+3. Règles chargées comparées au fichier (`sudo nft list ruleset`, voir plus haut) : `dnat` et `ct status dnat accept` présents, aucune règle parasite
+4. Routage IP, valeur du noyau comparée au fichier :
+
+   ```bash
+   sysctl net.ipv4.ip_forward
+   grep -r ip_forward /etc/sysctl.conf /etc/sysctl.d/
+   ```
+
+   `0` dans le noyau et `1` dans `99-host-firewall-router.conf` : dérive, comme pour les règles
+
+### Résolution
+
+Recharger le réglage versionné, sans redémarrer :
+
+```bash
+sudo sysctl -p /etc/sysctl.d/99-host-firewall-router.conf
+```
+
+puis vérifier depuis le client (`curl` en `200`) et depuis `lab-vm-3` (`ping -c 2 1.1.1.1`).
+
+---
+
 ## Prévention
 
 - Aucune règle à la main sur les machines : tout passe par le rôle `host_firewall`
 - Le rôle recharge `/etc/nftables.conf` à chaque passage et signale un `changed` s'il a corrigé une dérive. Avant cette correction, il ne comparait que le modèle au fichier : le pipeline sortait en succès sans toucher à la règle parasite
+- En mode routeur, le rôle compare aussi `net.ipv4.ip_forward` dans le noyau (pas seulement le fichier `sysctl.d`) et le réapplique s'il n'est pas à `1`. Même défaut corrigé le 09/10/2026 : avant, un `sysctl -w` à la main n'était pas réparé par le pipeline
 - Superviser le service depuis l'extérieur de la machine (test HTTP Zabbix), pas seulement le processus : ici nginx tournait parfaitement
 
 ---
@@ -163,3 +207,4 @@ curl -s -o /dev/null -w '%{http_code}\n' http://192.168.122.119/
 - Testé en lab le 30/09/2026 sur `lab-vm-2` (VM Proxmox, Debian 12, nftables)
 - Scénario simulé : `nft insert rule inet filter input tcp dport 80 drop` ajouté à la main en tête de chaîne
 - Testé en lab le 05/10/2026 sur `lab-vm-1` derrière OPNsense 26.7 : port cible de la redirection passé de `80` à `8080` (refus immédiat alors que nginx tournait)
+- Testé en lab le 09/10/2026 sur `fw-debian` (routeur Debian 12, nftables) : `sysctl -w net.ipv4.ip_forward=0` à la main (délai dépassé, règles nftables intactes)

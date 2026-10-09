@@ -20,13 +20,23 @@
     dest: /etc/sysctl.d/99-host-firewall-router.conf
     content: "net.ipv4.ip_forward = 1\n"
     mode: "0644"
-  register: host_firewall_sysctl
+  when: host_firewall_router | length > 0
+
+# On compare la valeur du noyau, pas le fichier : un `sysctl -w` à la main
+# laisse le fichier intact mais coupe le routage.
+- name: Read IPv4 forwarding
+  ansible.builtin.command: sysctl -n net.ipv4.ip_forward
+  register: host_firewall_forward
+  changed_when: false
+  check_mode: false
   when: host_firewall_router | length > 0
 
 - name: Apply IPv4 forwarding
   ansible.builtin.command: sysctl -p /etc/sysctl.d/99-host-firewall-router.conf
   changed_when: true
-  when: host_firewall_sysctl is changed
+  when:
+    - host_firewall_router | length > 0
+    - host_firewall_forward.stdout != "1"
 
 - name: Deploy nftables ruleset
   ansible.builtin.template:
