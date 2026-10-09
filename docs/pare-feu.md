@@ -200,9 +200,45 @@ Points notés au démarrage :
   - procédure complétée : `procedures/service-inaccessible-pare-feu.md`, cas d'un routeur Debian
 - **Même faiblesse du rôle que le 30/09, sur un autre réglage** : la tâche `Apply IPv4 forwarding` ne jouait que si le fichier `sysctl.d` changeait. Le pipeline serait donc sorti en succès, sans réparer le routage. Corrigé : le rôle lit `net.ipv4.ip_forward` dans le noyau et le réapplique s'il n'est pas à `1`. Vérifié depuis le poste : panne réinjectée, un passage du rôle la répare (`changed`), le suivant ne change rien.
 
+- **Proxmox bloqué puis planté par l'*async page fault* de KVM** (voir Problèmes rencontrés) : DNS du site A mort depuis le matin, VM 105 impossible à redémarrer, puis `KERNEL PANIC` de `proxmox-lab`. Corrigé par `no-kvmapf` dans la ligne de commande du noyau de Proxmox (`/etc/default/grub`, `update-grub`, vérifié dans `/proc/cmdline`).
+
+- **DMZ du site A sur OPNsense**, `lab-vm-1` déplacée dedans (voir Décisions) :
+
+  ```
+                 hôte 192.168.122.1 / AWX .148
+                          │ vmbr0 (WAN)
+                     OPNsense .119
+            10.10.10.1 │        │ 10.10.30.1
+               vmbr1 (LAN)    vmbr3 (DMZ)
+            lab-crash-1 .50   lab-vm-1 .101
+  ```
+
+  - `vmbr3` créé à la main dans Proxmox, troisième carte VirtIO sur la VM 105 (`vtnet2`, pare-feu Proxmox décoché), affectée en `DMZ` (`opt1`) en `10.10.30.1/24`, sans passerelle ni DHCP
+  - règles posées par l'API avec `tools/opnsense_dmz_rules.py` (idempotent, chaque règle est retrouvée par sa description). Elles apparaissent avec les autres dans Pare-feu → Règles, comme celles créées dans l'interface :
+
+    | # | Interface | Action | Flux |
+    |---|---|---|---|
+    | 500 | DMZ | Pass | DNS (TCP/UDP 53) vers `10.10.30.1` |
+    | 510 | DMZ | Pass | agent Zabbix actif vers `192.168.50.6:10051` |
+    | 520 | DMZ | Block, journalisé | DMZ → LAN |
+    | 530 | DMZ | Block, journalisé | DMZ → alias `reseaux_prives` (RFC 1918) |
+    | 540–550 | DMZ | Pass | sortie 80, 443 (apt) et UDP 123 (NTP) |
+    | 600 | WAN | Pass | SSH depuis AWX (`.148`) vers la DMZ |
+    | 610 | WAN | Pass | ping depuis `192.168.122.0/24` vers la DMZ |
+
+  - repo : `lab-vm-1` sur `vmbr3` en `10.10.30.101`, passerelle et DNS `10.10.30.1` (`proxmox_provision_vms.yml`, `lab_vms_static.yml`), passé par `lab-vms-provision` (job 186) puis arrêt/démarrage de la VM 101
+  - redirection de port repointée par l'API : `.119:80` → `10.10.30.101:80` (règle `lab-vm-1 web (DMZ)`)
+  - routes `10.10.30.0/24 via 192.168.122.119` sur l'hôte (à chaud, et `<route>` dans le réseau libvirt `default`) et sur AWX (lignes `up`/`down` dans `enp1s0`)
+  - Zabbix : interface de `lab-vm-1` passée en `10.10.30.101` (`hostinterface.update`), inventaire AWX resynchronisé
+- **Vérifié** :
+  - depuis le poste : ping `10.10.30.101` OK, `http://192.168.122.119/` en `200`. Accès direct `10.10.30.101:80` et SSH bloqués : le site n'est joignable que par la redirection, et SSH est réservé à AWX
+  - depuis `lab-vm-1` (commande ad hoc AWX, `/dev/tcp` de bash) : DNS, HTTP, HTTPS et Zabbix `10051` passent. LAN (`10.10.10.1:443`, `10.10.10.50:22`), site B (`10.10.20.101:80`), WAN du lab (AWX `:22`, `lab-vm-2:80`) et l'interface web d'OPNsense côté DMZ (`10.10.30.1:443`) sont tous en délai dépassé
+  - `lab-site` (job 196) : `fw-debian`, `lab-vm-1`, `lab-vm-2`, `lab-vm-3` sans échec
+
 ### Prochaine session
 
-- Dans l'ordre : DMZ (`vmbr3`), VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
+- Dans l'ordre : VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
+- Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_dmz_rules.py` en est un premier pas)
 
 ## Décisions
 
@@ -217,6 +253,8 @@ Points notés au démarrage :
 - **05/10/2026 — Site de `lab-vm-1` publié par redirection de port, pas par une simple règle Pass.** Le client ne connaît que l'adresse WAN d'OPNsense, comme en PME avec une IP publique, et la route vers le LAN reste réservée à l'administration. Option Firewall rule = **Pass** (`rdr pass`) : la redirection laisse passer le trafic sans règle dans Règles → WAN. C'est plus simple, mais la règle n'apparaît pas avec les autres règles WAN : pour la retrouver, il faut regarder dans le NAT.
 
 - **06/10/2026 — Debian + nftables en site B parallèle, pas à la place d'OPNsense.** Nouveau LAN `10.10.20.0/24` sur `vmbr2` : les deux pare-feu tournent côte à côte, ce qui permet de les comparer en direct sans couper `lab-vm-1`, et prépare un IPsec site-à-site entre les deux. La DMZ prévue sur `vmbr2` passe donc sur `vmbr3`.
+- **09/10/2026 — DMZ sur OPNsense, et `lab-vm-1` (le site publié) déplacée dedans.** Le LAN n'héberge plus aucun serveur exposé : si le serveur web est compromis, l'attaquant reste enfermé en DMZ, sans accès au LAN, au site B ni au WAN du lab. Pas de nouvelle VM (la RAM de Proxmox est limitée à 10 Gio). Sorties de la DMZ limitées à ce dont le serveur a besoin (DNS, apt, NTP, Zabbix). Les blocages DMZ → LAN et DMZ → privé sont explicites et journalisés, pour qu'une tentative de rebond soit visible dans les logs.
+- **09/10/2026 — Règles de la DMZ posées par l'API, pas dans l'interface.** Script versionné et idempotent : les règles sont relues dans le repo, et c'est un premier pas vers OPNsense en code. Pas de retour arrière automatique, parce que l'API de la 26.7 n'a pas de savepoint pour ces règles (`404`). Le script n'ajoute donc que des règles DMZ et des Pass WAN → DMZ, et ne touche jamais à l'accès au pare-feu.
 - **06/10/2026 — Mode routeur ajouté au rôle `host_firewall`, pas de nouveau rôle.** Même gabarit, même retour arrière automatique : un hôte reste un pare-feu d'hôte tant que `host_firewall_router` est vide. Interfaces nommées dans `host_vars` (et vérifiées par une assertion) plutôt que devinées depuis les faits.
 
 ## Points ouverts
@@ -224,6 +262,15 @@ Points notés au démarrage :
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
+
+- **Proxmox figé puis en `KERNEL PANIC` : *async page fault* de KVM en virtualisation imbriquée (09/10/2026).** Trois symptômes dans la même journée, avec une seule cause :
+  - le DNS d'OPNsense ne répondait plus au LAN depuis le démarrage, alors que le ping, le NAT et la redirection marchaient. `apt-get update` restait bloqué sur `lab-vm-1` et gardait le verrou apt, d'où l'échec de `lab-site` sur cette VM (`Could not get lock /var/lib/apt/lists/lock`)
+  - la VM 105 refusait de redémarrer : `timeout waiting on systemd`. Le cgroup `105.scope` contenait encore l'ancien QEMU (PID en `Z`, invisible dans `ps -ef | grep 'kvm -id 105'` car sans ligne de commande), dont un thread restait en `D` dans `kvm_async_pf_task_wait_schedule`. Aucun signal ne le débloque : `proxmox-lab` a été redémarrée (`virsh shutdown`, sans effet au bout de 2 minutes, puis `destroy`/`start`)
+  - quelques minutes après, l'écran de `proxmox-lab` affichait `KERNEL PANIC! Host injected async #PF in kernel mode`
+  
+  Explication : quand l'hôte met en swap une page mémoire de la VM Proxmox, KVM le signale au noyau invité par un *async page fault*, et ce noyau met le thread concerné en attente. Avec la virtualisation imbriquée, la notification « page prête » peut ne jamais arriver (blocage), ou le défaut tombe pendant que le noyau lui-même s'exécute (panique). Le poste utilisait 6 Gio de swap (32 Gio de RAM, dont Proxmox 10 Gio, AWX, Zabbix et d'autres conteneurs). Correction : paramètre `no-kvmapf` ajouté au noyau de Proxmox. Sans ce mécanisme, la VM est ralentie si l'hôte swappe, mais elle ne plante plus.
+- **Interface DMZ en `/32` après réactivation (09/10/2026).** Après le plantage, l'interface DMZ était désactivée. Elle a été réactivée avec le masque par défaut du menu déroulant, `32`. Dans pf, `(vtnet2:network)` valait alors `10.10.30.1/32` : `lab-vm-1` ne faisait plus partie de « DMZ net », ses requêtes DNS tombaient sur « Default deny / state violation rule », et OPNsense n'avait plus de route connectée vers `10.10.30.0/24` (ping impossible, alors que la VM figurait dans la table ARP). Diagnostic : `ifconfig vtnet2` affichait `netmask 0xffffffff`, et `pfctl -sr` montrait des règles correctes. Correction : masque `24` dans Interfaces → [DMZ]. À retenir : après avoir enregistré une interface, vérifier le masque dans `ifconfig`.
+- **Tests de ports faussés : `nc` absent de l'image des VMs (09/10/2026).** Un test `nc -z` en échec donnait « bloqué » pour tous les flux, y compris Zabbix, qui marchait. Pour un test fiable sans installer d'outil : `timeout 4 bash -c 'echo > /dev/tcp/<ip>/<port>'` (code `124` = délai dépassé).
 
 - **Nouvelles VMs injoignables par AWX : `172.20.0.1` dans l'inventaire (06/10/2026).** Création des hôtes `fw-debian` et `lab-vm-3` dans Zabbix par l'API, avec leur vraie IP. À la première connexion de l'agent actif, l'action « Auto-register lab VMs » (métadonnées `lab-vm`) a réécrit l'interface avec l'adresse source vue par le serveur : `172.20.0.1`, la passerelle du réseau Docker `homelab-zabbix_default`. Le trafic de l'agent vers le serveur Zabbix conteneurisé est traduit (NAT) sur l'hôte. L'inventaire AWX prend `ansible_host` dans cette interface, d'où le délai dépassé en SSH. Correction : IP remises par `hostinterface.update`, comme pour `lab-crash-1` le 01/10. Elles tiennent, car l'auto-enregistrement ne rejoue que si les données de connexion de l'agent changent. À retenir : après l'inscription d'une VM, vérifier l'IP de son interface dans Zabbix.
 - **DNS de `lab-vm-3` inchangé après redémarrage (06/10/2026).** Le changement de DNS dans cloud-init n'est pas pris en compte par un `reboot` lancé depuis la VM : le processus QEMU reste le même, et Proxmox ne régénère le lecteur cloud-init qu'au démarrage de la VM. Il faut un arrêt complet (`poweroff`) puis un démarrage, fait ici par `lab-vms-provision` (tâche « Démarrer les VMs »). Effet attendu ensuite : la configuration a changé, donc l'instance-id aussi, et cloud-init régénère les clés d'hôte SSH. D'où l'alerte « REMOTE HOST IDENTIFICATION HAS CHANGED », réglée par `ssh-keygen -R 10.10.20.101`.
