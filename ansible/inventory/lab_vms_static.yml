@@ -3,7 +3,7 @@ all:
     lab_vms_static:
       hosts:
         lab-vm-1:
-          ansible_host: 10.10.10.101  # derrière OPNsense
+          ansible_host: 10.10.30.101  # DMZ d'OPNsense
         lab-vm-2:
           ansible_host: 192.168.122.102
         fw-debian:
