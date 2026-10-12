@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Règles de la DMZ d'OPNsense (site A), posées par l'API.
+"""Règles de la DMZ et du VLAN invités d'OPNsense (site A), posées par l'API.
 
 Idempotent : chaque règle est retrouvée par sa description et mise à jour,
 pas recréée. Pas de retour arrière automatique : l'API d'OPNsense 26.7 n'a pas
-de savepoint pour ces règles (404). Le script n'ajoute que des règles DMZ et
-des Pass WAN → DMZ, il ne touche pas à l'accès au pare-feu lui-même.
+de savepoint pour ces règles (404). Le script n'ajoute que des règles DMZ,
+INVITES et des Pass WAN → DMZ, il ne touche pas à l'accès au pare-feu lui-même.
 
 Clé API : ~/.config/opnsense/apikey.txt (lignes key=… et secret=…, hors repo).
-Usage : tools/opnsense_dmz_rules.py [--dry-run]
+Usage : tools/opnsense_rules.py [--dry-run]
 """
 import base64
 import json
@@ -23,11 +23,12 @@ ALIAS = {
     "name": "reseaux_prives",
     "type": "network",
     "content": "10.0.0.0/8\n172.16.0.0/12\n192.168.0.0/16",
-    "description": "RFC 1918 (DMZ : tout le privé est interdit sauf exceptions)",
+    "description": "RFC 1918 (DMZ, INVITES : tout le privé est interdit sauf exceptions)",
 }
 
 # Lues de haut en bas (sequence), la première qui correspond décide.
 # opt1 = DMZ (vtnet2, 10.10.30.1/24).
+# opt2 = INVITES (VLAN 40 sur vtnet1, 10.10.40.1/24) : Internet seulement.
 RULES = [
     # --- DMZ ---
     dict(sequence=500, interface="opt1", action="pass", protocol="TCP/UDP",
@@ -58,6 +59,25 @@ RULES = [
     dict(sequence=610, interface="wan", action="pass", protocol="ICMP",
          source_net="192.168.122.0/24", destination_net="opt1",
          description="DMZ: ping depuis le WAN (tests)"),
+    # --- INVITES (VLAN 40) ---
+    dict(sequence=700, interface="opt2", action="pass", protocol="TCP/UDP",
+         source_net="opt2", destination_net="opt2ip", destination_port="53",
+         description="INVITES: DNS via OPNsense"),
+    dict(sequence=710, interface="opt2", action="block", protocol="any",
+         source_net="opt2", destination_net="reseaux_prives", log="1",
+         description="INVITES: interdit vers les réseaux privés"),
+    dict(sequence=720, interface="opt2", action="pass", protocol="TCP",
+         source_net="opt2", destination_net="any", destination_port="80",
+         description="INVITES: sortie HTTP"),
+    dict(sequence=721, interface="opt2", action="pass", protocol="TCP",
+         source_net="opt2", destination_net="any", destination_port="443",
+         description="INVITES: sortie HTTPS"),
+    dict(sequence=730, interface="opt2", action="pass", protocol="UDP",
+         source_net="opt2", destination_net="any", destination_port="123",
+         description="INVITES: NTP"),
+    dict(sequence=740, interface="opt2", action="pass", protocol="ICMP",
+         source_net="opt2", destination_net="any",
+         description="INVITES: ping vers Internet"),
 ]
 
 DEFAULTS = dict(enabled="1", quick="1", direction="in", ipprotocol="inet",

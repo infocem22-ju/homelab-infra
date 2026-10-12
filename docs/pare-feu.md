@@ -235,10 +235,37 @@ Points notés au démarrage :
   - depuis `lab-vm-1` (commande ad hoc AWX, `/dev/tcp` de bash) : DNS, HTTP, HTTPS et Zabbix `10051` passent. LAN (`10.10.10.1:443`, `10.10.10.50:22`), site B (`10.10.20.101:80`), WAN du lab (AWX `:22`, `lab-vm-2:80`) et l'interface web d'OPNsense côté DMZ (`10.10.30.1:443`) sont tous en délai dépassé
   - `lab-site` (job 196) : `fw-debian`, `lab-vm-1`, `lab-vm-2`, `lab-vm-3` sans échec
 
+### 12/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX), `fw-debian` et `lab-vm-3` démarrées par `lab-vms-provision` (job 200, aucun échec), runner GitHub relancé.
+- **VLAN 40 « INVITES » sur le LAN du site A** (voir Décisions) :
+
+  ```
+                     OPNsense
+                 vtnet1 (trunk) ── vmbr1, VLAN aware
+               non étiqueté │      │ VLAN 40 (vlan01)
+           LAN 10.10.10.0/24      INVITES 10.10.40.0/24
+                                  lab-crash-1 .220 (DHCP)
+  ```
+
+  - Proxmox : « VLAN aware » coché sur `vmbr1`, puis Apply Configuration. Le LAN existant reste non étiqueté, donc aucune coupure. Carte de `lab-crash-1` (VM 103) en VLAN Tag `40`
+  - OPNsense, dans l'interface (la clé API n'a que les droits pare-feu, `403` sur VLAN, interfaces et DHCP) : VLAN `40` sur `vtnet1` (périphérique `vlan01`), affecté en `INVITES` (`opt2`) en `10.10.40.1/24`, plage Dnsmasq `.200`–`.249`
+  - règles posées par l'API. Le script de la DMZ est renommé `tools/opnsense_rules.py`, puisqu'il couvre maintenant les deux zones :
+
+    | # | Interface | Action | Flux |
+    |---|---|---|---|
+    | 700 | INVITES | Pass | DNS (TCP/UDP 53) vers `10.10.40.1` |
+    | 710 | INVITES | Block, journalisé | INVITES → alias `reseaux_prives` (LAN, DMZ, site B, WAN du lab, OPNsense lui-même) |
+    | 720–730 | INVITES | Pass | sortie 80, 443 et UDP 123 |
+    | 740 | INVITES | Pass | ping (vers Internet seulement, le privé est bloqué juste avant) |
+
+  - le chemin a été suivi bout à bout : `bridge vlan show` sur Proxmox (`tap103i0` en `40 PVID Egress Untagged`, `tap105i1` en `1` non étiqueté plus `2`–`4094`), `tcpdump -eni vtnet1 vlan 40` sur OPNsense (demande DHCP étiquetée `vlan 40`, réponse de `10.10.40.1` dans le même VLAN)
+- **Vérifié** depuis la console de `lab-crash-1` (`/dev/tcp` de bash) : adresse `10.10.40.220/24`, passerelle `10.10.40.1`, `deb.debian.org` résolu, `1.1.1.1:443` ouvert. L'interface web d'OPNsense (`10.10.40.1:443`), le LAN (`10.10.10.1:443`), la DMZ (`10.10.30.101:80`), le site B (`10.10.20.101:80`) et AWX (`192.168.122.148:22`) sont en délai dépassé. Site publié toujours en `200`, règles de la DMZ inchangées. Après un redémarrage, le bail DHCP arrive seul (voir Problèmes rencontrés).
+
 ### Prochaine session
 
-- Dans l'ordre : VLAN, WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
-- Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_dmz_rules.py` en est un premier pas)
+- Dans l'ordre : VLAN sur `fw-debian` (sous-interface `eth1.40` dans le rôle, pour comparer avec OPNsense), WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
+- Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
 
@@ -256,6 +283,7 @@ Points notés au démarrage :
 - **09/10/2026 — DMZ sur OPNsense, et `lab-vm-1` (le site publié) déplacée dedans.** Le LAN n'héberge plus aucun serveur exposé : si le serveur web est compromis, l'attaquant reste enfermé en DMZ, sans accès au LAN, au site B ni au WAN du lab. Pas de nouvelle VM (la RAM de Proxmox est limitée à 10 Gio). Sorties de la DMZ limitées à ce dont le serveur a besoin (DNS, apt, NTP, Zabbix). Les blocages DMZ → LAN et DMZ → privé sont explicites et journalisés, pour qu'une tentative de rebond soit visible dans les logs.
 - **09/10/2026 — Règles de la DMZ posées par l'API, pas dans l'interface.** Script versionné et idempotent : les règles sont relues dans le repo, et c'est un premier pas vers OPNsense en code. Pas de retour arrière automatique, parce que l'API de la 26.7 n'a pas de savepoint pour ces règles (`404`). Le script n'ajoute donc que des règles DMZ et des Pass WAN → DMZ, et ne touche jamais à l'accès au pare-feu.
 - **06/10/2026 — Mode routeur ajouté au rôle `host_firewall`, pas de nouveau rôle.** Même gabarit, même retour arrière automatique : un hôte reste un pare-feu d'hôte tant que `host_firewall_router` est vide. Interfaces nommées dans `host_vars` (et vérifiées par une assertion) plutôt que devinées depuis les faits.
+- **12/10/2026 — VLAN invités sur le trunk du LAN, pas une quatrième carte.** Un seul port physique pour plusieurs réseaux, comme sur un switch de PME : `vmbr1` devient un trunk, et chaque réseau supplémentaire ne coûte qu'un tag, sans carte ni bridge en plus. Le LAN reste non étiqueté, pour ne rien casser. Le réseau invités n'a droit qu'à Internet : aucune règle d'administration, car un poste invité n'est pas géré. `lab-crash-1` sort donc d'AWX et de Zabbix tant qu'elle y est, et se teste depuis sa console.
 
 ## Points ouverts
 
@@ -263,6 +291,7 @@ Points notés au démarrage :
 
 ## Problèmes rencontrés
 
+- **`lab-crash-1` sans adresse au premier démarrage dans le VLAN 40 (12/10/2026).** `ip -4 -br a` ne montrait que `lo`. Le chemin a été coupé en deux : `tcpdump -ni vlan01 port 67 or port 68` sur OPNsense ne voyait rien passer, mais le bridge était bon (`bridge vlan show`). Un `dhclient` lancé à la main pendant un `tcpdump -eni vtnet1 vlan 40` a eu son bail tout de suite, et `systemd-networkd` a aussi fini par obtenir le sien (deux routes par défaut). Après un redémarrage, l'adresse arrive seule. Cause non prouvée : probablement l'ancien bail `10.10.10.50` gardé par la VM, ou un test lancé avant la fin du DHCP. Le premier réflexe à avoir : `networkctl status eth0` avant de soupçonner le réseau.
 - **Proxmox figé puis en `KERNEL PANIC` : *async page fault* de KVM en virtualisation imbriquée (09/10/2026).** Trois symptômes dans la même journée, avec une seule cause :
   - le DNS d'OPNsense ne répondait plus au LAN depuis le démarrage, alors que le ping, le NAT et la redirection marchaient. `apt-get update` restait bloqué sur `lab-vm-1` et gardait le verrou apt, d'où l'échec de `lab-site` sur cette VM (`Could not get lock /var/lib/apt/lists/lock`)
   - la VM 105 refusait de redémarrer : `timeout waiting on systemd`. Le cgroup `105.scope` contenait encore l'ancien QEMU (PID en `Z`, invisible dans `ps -ef | grep 'kvm -id 105'` car sans ligne de commande), dont un thread restait en `D` dans `kvm_async_pf_task_wait_schedule`. Aucun signal ne le débloque : `proxmox-lab` a été redémarrée (`virsh shutdown`, sans effet au bout de 2 minutes, puis `destroy`/`start`)
