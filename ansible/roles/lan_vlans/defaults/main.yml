@@ -1,0 +1,4 @@
+---
+# Sous-interfaces VLAN du LAN d'un pare-feu Debian (voir host_vars/fw-debian.yml).
+# Une entrée par VLAN : id, link (carte parente, trunk côté Proxmox), address (CIDR).
+lan_vlans: []

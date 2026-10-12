@@ -10,5 +10,8 @@ dnsmasq_lan_domain: siteb.lab
 # Résolveurs vers lesquels partent les noms hors du domaine local.
 dnsmasq_lan_upstream:
   - 192.168.122.1
+# Réseaux en plus du LAN (VLAN du rôle lan_vlans), chacun avec sa plage DHCP.
+# name, interface, address, start, end ; passerelle et DNS = address.
+dnsmasq_lan_vlans: []
 # Noms du LAN, y compris les machines en IP fixe (name, ip).
 dnsmasq_lan_hosts: []

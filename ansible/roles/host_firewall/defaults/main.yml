@@ -26,5 +26,7 @@ host_firewall_rollback_delay: 60
 # Mode routeur (pare-feu entre un WAN et un LAN, voir host_vars/fw-debian.yml).
 # Vide = simple pare-feu d'hôte. Clés : wan_if, lan_if, lan_net,
 # forward_rules (même format que host_firewall_rules, du WAN vers le LAN)
-# et port_forwards (name, proto, port, to, to_port facultatif).
+# port_forwards (name, proto, port, to, to_port facultatif)
+# et guests (name, if, net, allow) : réseaux invités, sortie vers le WAN seulement,
+# jamais vers une adresse privée, sur les flux de allow (name, proto, port).
 host_firewall_router: {}

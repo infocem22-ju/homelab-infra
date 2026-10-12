@@ -1,0 +1,7 @@
+---
+# Sous-interfaces VLAN du LAN des pare-feu Debian (groupe routers), avant dnsmasq et nftables.
+- name: LAN - VLAN (netplan)
+  hosts: routers
+  become: true
+  roles:
+    - role: lan_vlans

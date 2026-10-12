@@ -1,8 +1,14 @@
 #!/usr/sbin/nft -f
 # {{ ansible_managed }} (rôle host_firewall)
 {% set router = host_firewall_router %}
+{% set guests = router.guests | default([]) if router else [] %}
 
 flush ruleset
+{% if guests %}
+
+# RFC 1918 : un réseau invité n'y a jamais accès (LAN, autres VLAN, WAN du lab, ce pare-feu).
+define PRIVATE_NETS = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 }
+{% endif %}
 
 table inet filter {
     chain input {
@@ -39,6 +45,11 @@ table inet filter {
 {% for rule in router.forward_rules | default([]) %}
         iifname "{{ router.wan_if }}" ip daddr {{ router.lan_net }} {% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{% if rule.proto | default('tcp') == 'icmp' %}icmp type echo-request{% else %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} }{% endif %} accept comment "{{ rule.name }}"
 {% endfor %}
+{% for guest in guests %}
+{% for rule in guest.allow %}
+        iifname "{{ guest.if }}" oifname "{{ router.wan_if }}" ip saddr {{ guest.net }} ip daddr != $PRIVATE_NETS {% if rule.proto | default('tcp') == 'icmp' %}icmp type echo-request{% else %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} }{% endif %} accept comment "{{ guest.name }} : {{ rule.name }}"
+{% endfor %}
+{% endfor %}
         # Le trafic redirigé par la table nat (prerouting) arrive ici avec sa destination LAN.
         ct status dnat accept comment "Redirections de ports"
 {% if host_firewall_log_drops %}
@@ -65,6 +76,9 @@ table ip nat {
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
         oifname "{{ router.wan_if }}" ip saddr {{ router.lan_net }} masquerade comment "NAT sortant du LAN"
+{% for guest in guests %}
+        oifname "{{ router.wan_if }}" ip saddr {{ guest.net }} masquerade comment "NAT sortant de {{ guest.name }}"
+{% endfor %}
     }
 }
 {% endif %}

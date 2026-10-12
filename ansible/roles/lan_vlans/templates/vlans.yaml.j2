@@ -1,0 +1,13 @@
+# {{ ansible_managed }} (rôle lan_vlans)
+# Fichier à part : 50-cloud-init.yaml est réécrit par cloud-init, celui-ci non.
+# Netplan fusionne les fichiers : les cartes parentes sont définies dans 50-cloud-init.yaml.
+network:
+  version: 2
+  vlans:
+{% for vlan in lan_vlans %}
+    {{ vlan.link }}.{{ vlan.id }}:
+      id: {{ vlan.id }}
+      link: {{ vlan.link }}
+      addresses:
+        - {{ vlan.address }}
+{% endfor %}

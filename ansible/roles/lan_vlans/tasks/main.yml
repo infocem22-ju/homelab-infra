@@ -1,0 +1,31 @@
+---
+- name: Deploy netplan VLAN config
+  ansible.builtin.template:
+    src: vlans.yaml.j2
+    dest: /etc/netplan/60-lan-vlans.yaml
+    mode: "0600"
+  register: lan_vlans_conf
+  when: lan_vlans | length > 0
+
+# `netplan apply` relance aussi les cartes existantes (dont le WAN, par où passe Ansible) :
+# generate + reload ne fait créer que ce qui manque à systemd-networkd.
+- name: Apply netplan VLAN config
+  ansible.builtin.shell: netplan generate && networkctl reload
+  changed_when: true
+  when: lan_vlans_conf is changed
+
+- name: Wait for VLAN interfaces
+  ansible.builtin.command: "ip -br addr show dev {{ item.link }}.{{ item.id }}"
+  register: lan_vlans_state
+  until: item.address.split('/')[0] in lan_vlans_state.stdout
+  retries: 10
+  delay: 2
+  changed_when: false
+  loop: "{{ lan_vlans }}"
+  when: not ansible_check_mode  # rien n'est créé en mode test
+
+# Les rôles suivants (dnsmasq, assertion du pare-feu) lisent ansible_interfaces.
+- name: Refresh network facts
+  ansible.builtin.setup:
+    gather_subset: [network]
+  when: lan_vlans_conf is changed

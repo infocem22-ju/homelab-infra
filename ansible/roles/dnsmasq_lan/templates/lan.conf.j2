@@ -2,6 +2,9 @@
 
 # Uniquement sur le LAN : systemd-resolved garde 127.0.0.53, et rien n'écoute côté WAN.
 interface={{ dnsmasq_lan_interface }}
+{% for vlan in dnsmasq_lan_vlans %}
+interface={{ vlan.interface }}
+{% endfor %}
 except-interface=lo
 bind-interfaces
 
@@ -21,9 +24,15 @@ no-hosts
 host-record={{ host.name }}.{{ dnsmasq_lan_domain }},{{ host.name }},{{ host.ip }}
 {% endfor %}
 
-# DHCP : passerelle et DNS = le pare-feu
-dhcp-range={{ dnsmasq_lan_dhcp_range.start }},{{ dnsmasq_lan_dhcp_range.end }},{{ dnsmasq_lan_dhcp_range.lease }}
-dhcp-option=option:router,{{ dnsmasq_lan_address }}
-dhcp-option=option:dns-server,{{ dnsmasq_lan_address }}
+# DHCP : passerelle et DNS = le pare-feu, sur l'adresse du réseau du client.
+# Options étiquetées par réseau : sans tag, la passerelle du LAN partirait aussi aux VLAN.
+dhcp-range=set:lan,{{ dnsmasq_lan_dhcp_range.start }},{{ dnsmasq_lan_dhcp_range.end }},{{ dnsmasq_lan_dhcp_range.lease }}
+dhcp-option=tag:lan,option:router,{{ dnsmasq_lan_address }}
+dhcp-option=tag:lan,option:dns-server,{{ dnsmasq_lan_address }}
+{% for vlan in dnsmasq_lan_vlans %}
+dhcp-range=set:{{ vlan.name }},{{ vlan.start }},{{ vlan.end }},{{ dnsmasq_lan_dhcp_range.lease }}
+dhcp-option=tag:{{ vlan.name }},option:router,{{ vlan.address }}
+dhcp-option=tag:{{ vlan.name }},option:dns-server,{{ vlan.address }}
+{% endfor %}
 dhcp-authoritative
 log-dhcp

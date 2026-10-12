@@ -261,10 +261,26 @@ Points notés au démarrage :
 
   - le chemin a été suivi bout à bout : `bridge vlan show` sur Proxmox (`tap103i0` en `40 PVID Egress Untagged`, `tap105i1` en `1` non étiqueté plus `2`–`4094`), `tcpdump -eni vtnet1 vlan 40` sur OPNsense (demande DHCP étiquetée `vlan 40`, réponse de `10.10.40.1` dans le même VLAN)
 - **Vérifié** depuis la console de `lab-crash-1` (`/dev/tcp` de bash) : adresse `10.10.40.220/24`, passerelle `10.10.40.1`, `deb.debian.org` résolu, `1.1.1.1:443` ouvert. L'interface web d'OPNsense (`10.10.40.1:443`), le LAN (`10.10.10.1:443`), la DMZ (`10.10.30.101:80`), le site B (`10.10.20.101:80`) et AWX (`192.168.122.148:22`) sont en délai dépassé. Site publié toujours en `200`, règles de la DMZ inchangées. Après un redémarrage, le bail DHCP arrive seul (voir Problèmes rencontrés).
+- **Le même VLAN invités sur `fw-debian` (site B)**, pour comparer avec OPNsense. Seul geste à la main : « VLAN aware » sur `vmbr2`. Tout le reste est en Ansible, joué depuis le poste avec l'inventaire statique, puis rejoué sans aucun `changed` :
+  - nouveau rôle `lan_vlans` (playbook `34_lan_vlans.yml`, ajouté à `lab-site` avant dnsmasq) : sous-interface `eth1.40` en `10.10.41.1/24`, dans `/etc/netplan/60-lan-vlans.yaml`. Ce fichier est séparé, car cloud-init réécrit `50-cloud-init.yaml`. L'application passe par `netplan generate` puis `networkctl reload`, et non par `netplan apply`, qui relancerait aussi le WAN par lequel passe Ansible
+  - `dnsmasq_lan` : liste `dnsmasq_lan_vlans`, une plage `.200`–`.249` par VLAN. Les options DHCP sont étiquetées par réseau (`set:lan`, `set:invites`) : sans étiquette, les invités auraient reçu la passerelle du LAN
+  - `host_firewall`, mode routeur : liste `guests`. Un invité ne sort que vers `eth0`, jamais vers `PRIVATE_NETS` (RFC 1918), et seulement en 80, 443, UDP 123 et ping. Il a son propre NAT sortant. DNS et DHCP sont ouverts en entrée sur `eth1.40` seulement
+  - `lab-crash-1` passée de `vmbr1` à `vmbr2` (tag `40` inchangé). Elle a obtenu `10.10.41.220` après la correction du trunk (voir Problèmes rencontrés)
+- **Vérifié** depuis la console de `lab-crash-1` : passerelle `10.10.41.1`, DNS résolu, `1.1.1.1:443` ouvert. SSH du pare-feu (`10.10.41.1` et `10.10.20.1`), LAN du site B (`10.10.20.101:80`), site A (`10.10.10.1`, `10.10.30.101`), AWX et l'hôte sont bloqués. Les rejets sont dans le journal du noyau de `fw-debian` : `nft-drop` pour ce qui vise le pare-feu, `nft-fwd-drop` pour ce qui le traverse (dont l'agent Zabbix de `lab-crash-1`, resté configuré vers `192.168.50.6:10051`). Le site B répond toujours `200`.
+- **Comparaison OPNsense / nftables sur ce cas** :
+
+  | | OPNsense (site A) | `fw-debian` (site B) |
+  |---|---|---|
+  | VLAN | Interfaces → Devices → VLAN, puis Assignments (interface web) | `lan_vlans` (netplan), versionné |
+  | DHCP | Dnsmasq, une plage par interface | dnsmasq, une plage par VLAN, options étiquetées |
+  | Règles | API (`tools/opnsense_rules.py`), alias `reseaux_prives` | `guests` dans `host_vars`, `define PRIVATE_NETS` |
+  | Ce qui reste à la main | VLAN, interface, DHCP (la clé API reçoit `403`) | « VLAN aware » sur le bridge Proxmox |
+  | Rejets visibles | journal du pare-feu (règle 710 journalisée) | `journalctl -k`, préfixes `nft-drop` / `nft-fwd-drop`, limités à 5 par minute |
+
 
 ### Prochaine session
 
-- Dans l'ordre : VLAN sur `fw-debian` (sous-interface `eth1.40` dans le rôle, pour comparer avec OPNsense), WireGuard, IPsec site-à-site entre OPNsense et `fw-debian`
+- Dans l'ordre : WireGuard, IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
@@ -284,6 +300,8 @@ Points notés au démarrage :
 - **09/10/2026 — Règles de la DMZ posées par l'API, pas dans l'interface.** Script versionné et idempotent : les règles sont relues dans le repo, et c'est un premier pas vers OPNsense en code. Pas de retour arrière automatique, parce que l'API de la 26.7 n'a pas de savepoint pour ces règles (`404`). Le script n'ajoute donc que des règles DMZ et des Pass WAN → DMZ, et ne touche jamais à l'accès au pare-feu.
 - **06/10/2026 — Mode routeur ajouté au rôle `host_firewall`, pas de nouveau rôle.** Même gabarit, même retour arrière automatique : un hôte reste un pare-feu d'hôte tant que `host_firewall_router` est vide. Interfaces nommées dans `host_vars` (et vérifiées par une assertion) plutôt que devinées depuis les faits.
 - **12/10/2026 — VLAN invités sur le trunk du LAN, pas une quatrième carte.** Un seul port physique pour plusieurs réseaux, comme sur un switch de PME : `vmbr1` devient un trunk, et chaque réseau supplémentaire ne coûte qu'un tag, sans carte ni bridge en plus. Le LAN reste non étiqueté, pour ne rien casser. Le réseau invités n'a droit qu'à Internet : aucune règle d'administration, car un poste invité n'est pas géré. `lab-crash-1` sort donc d'AWX et de Zabbix tant qu'elle y est, et se teste depuis sa console.
+- **12/10/2026 — Invités du site B en `10.10.41.0/24`, pas `10.10.40.0/24`.** Le numéro de VLAN (40) est le même : un tag n'a de sens qu'à l'intérieur d'un site. Mais deux sites qui seront reliés par IPsec ne doivent pas avoir de sous-réseaux qui se chevauchent, même pour un réseau qui ne passera pas dans le tunnel. Sinon, une route ou une règle écrite pour l'un vise aussi l'autre.
+- **12/10/2026 — Invités de `fw-debian` dans `host_firewall` (liste `guests`), pas dans `forward_rules`.** `forward_rules` décrit ce qui entre du WAN vers le LAN. Les invités vont dans l'autre sens et ont une règle de fond différente (« tout sauf le privé »). Une liste à part garde chaque règle lisible dans `host_vars`.
 
 ## Points ouverts
 
@@ -291,6 +309,7 @@ Points notés au démarrage :
 
 ## Problèmes rencontrés
 
+- **Aucun DHCP sur le VLAN 40 du site B : le port de `fw-debian` restait dans le VLAN 1 (12/10/2026).** `lab-crash-1` sans adresse, et `tcpdump -eni eth1 "vlan 40 or port 67 or port 68"` sur `fw-debian` ne voyait rien en 45 s. Le problème était donc dans Proxmox. `bridge vlan show` : `tap103i0` en `40 PVID`, mais `tap120i1` (LAN de `fw-debian`) en `1 PVID` seul. `fw-debian` tournait quand `vmbr2` est passé en « VLAN aware », et Proxmox ne pose la liste des VLAN d'un port (`2-4094`) qu'au démarrage de la VM. Correction à chaud : `bridge vlan add dev tap120i1 vid 2-4094` ; au prochain démarrage de la VM, Proxmox le fait lui-même. OPNsense n'a pas eu le souci sur `vmbr1`. À retenir : après avoir coché « VLAN aware », redémarrer (ou corriger à chaud) les VMs déjà branchées en trunk.
 - **`lab-crash-1` sans adresse au premier démarrage dans le VLAN 40 (12/10/2026).** `ip -4 -br a` ne montrait que `lo`. Le chemin a été coupé en deux : `tcpdump -ni vlan01 port 67 or port 68` sur OPNsense ne voyait rien passer, mais le bridge était bon (`bridge vlan show`). Un `dhclient` lancé à la main pendant un `tcpdump -eni vtnet1 vlan 40` a eu son bail tout de suite, et `systemd-networkd` a aussi fini par obtenir le sien (deux routes par défaut). Après un redémarrage, l'adresse arrive seule. Cause non prouvée : probablement l'ancien bail `10.10.10.50` gardé par la VM, ou un test lancé avant la fin du DHCP. Le premier réflexe à avoir : `networkctl status eth0` avant de soupçonner le réseau.
 - **Proxmox figé puis en `KERNEL PANIC` : *async page fault* de KVM en virtualisation imbriquée (09/10/2026).** Trois symptômes dans la même journée, avec une seule cause :
   - le DNS d'OPNsense ne répondait plus au LAN depuis le démarrage, alors que le ping, le NAT et la redirection marchaient. `apt-get update` restait bloqué sur `lab-vm-1` et gardait le verrou apt, d'où l'échec de `lab-site` sur cette VM (`Could not get lock /var/lib/apt/lists/lock`)

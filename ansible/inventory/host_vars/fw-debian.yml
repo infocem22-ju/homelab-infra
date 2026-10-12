@@ -1,5 +1,6 @@
 # Pare-feu Debian + nftables (site B), pendant d'OPNsense : voir docs/pare-feu.md.
 # WAN sur vmbr0 (192.168.122.120), LAN 10.10.20.0/24 sur vmbr2.
+# vmbr2 est VLAN aware : eth1 porte le LAN non étiqueté et le VLAN 40 (invités, 10.10.41.0/24).
 host_firewall_enabled: true
 
 # Le pare-feu lui-même : SSH d'administration seulement.
@@ -23,6 +24,18 @@ host_firewall_rules:
     proto: udp
     port: 67
     iif: eth1
+  - name: DNS des invités (UDP)
+    proto: udp
+    port: 53
+    iif: eth1.40
+  - name: DNS des invités (TCP)
+    proto: tcp
+    port: 53
+    iif: eth1.40
+  - name: DHCP des invités
+    proto: udp
+    port: 67
+    iif: eth1.40
 
 host_firewall_router:
   wan_if: eth0
@@ -41,16 +54,44 @@ host_firewall_router:
       sources:
         - 192.168.122.148
         - 192.168.122.1
+  # Comme INVITES (VLAN 40) sur OPNsense : Internet seulement, aucun accès d'administration.
+  guests:
+    - name: invites
+      if: eth1.40
+      net: 10.10.41.0/24
+      allow:
+        - name: sortie HTTP
+          port: 80
+        - name: sortie HTTPS
+          port: 443
+        - name: NTP
+          proto: udp
+          port: 123
+        - name: ping vers Internet
+          proto: icmp
   # Comme lab-vm-1 derrière OPNsense : le client ne connaît que l'adresse WAN.
   port_forwards:
     - name: Site de lab-vm-3
       proto: tcp
       port: 80
       to: 10.10.20.101
+# VLAN invités : même numéro que sur OPNsense (un tag n'a de sens que dans son site),
+# mais sous-réseau propre au site B (10.10.40.0/24 est au site A) : pas de chevauchement
+# quand les deux sites seront reliés par IPsec.
+lan_vlans:
+  - id: 40
+    link: eth1
+    address: 10.10.41.1/24
 
 # DHCP et DNS du LAN, comme le Dnsmasq d'OPNsense sur le site A.
 dnsmasq_lan_interface: eth1
 dnsmasq_lan_address: 10.10.20.1
+dnsmasq_lan_vlans:
+  - name: invites
+    interface: eth1.40
+    address: 10.10.41.1
+    start: 10.10.41.200
+    end: 10.10.41.249
 dnsmasq_lan_domain: siteb.lab
 dnsmasq_lan_hosts:
   - name: fw-debian
