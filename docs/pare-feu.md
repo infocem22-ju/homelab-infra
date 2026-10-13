@@ -324,7 +324,8 @@ Points notés au démarrage :
 
 ### Prochaine session
 
-- Dans l'ordre : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
+- **En premier : accélérer les mises à jour du projet AWX** (voir Points ouverts). Délai de cache sur le projet `homelab-infra` (id 8, aujourd'hui `scm_update_cache_timeout = 0` avec mise à jour à chaque lancement), puis versions exactes dans `requirements.yml` au lieu de `>=`. Plus tard : collections dans une image EE
+- Ensuite : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
