@@ -324,6 +324,7 @@ Points notés au démarrage :
 
 ### Prochaine session
 
+- **Avant tout : relancer le déploiement de `f286b53`** (job `lab-site` 212 en échec à cause du plantage de Proxmox, voir Problèmes rencontrés), puis vérifier `wg-siteb` depuis `lab-vm-2`. Lire `journalctl -k -b -1` dans Proxmox
 - **En premier : accélérer les mises à jour du projet AWX** (voir Points ouverts). Délai de cache sur le projet `homelab-infra` (id 8, aujourd'hui `scm_update_cache_timeout = 0` avec mise à jour à chaque lancement), puis versions exactes dans `requirements.yml` au lieu de `>=`. Plus tard : collections dans une image EE
 - Ensuite : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
@@ -357,6 +358,7 @@ Points notés au démarrage :
 
 ## Problèmes rencontrés
 
+- **Proxmox de nouveau en `KERNEL PANIC` (13/10/2026), malgré `no-kvmapf`.** Vers 09:30, après une matinée de travail : plus aucune VM du lab ne répond (« No route to host »), et le job `lab-site` 212 (déploiement de `f286b53`) échoue en `unreachable` sur les quatre hôtes. La VM `proxmox-lab` est toujours « en cours d'exécution » pour libvirt et consomme encore du CPU, mais sa console (`virsh screenshot`) affiche `KERNEL PANIC! Attempted to kill the idle task!`. Le message diffère de celui du 09/10 (`Host injected async #PF`), mais le contexte est le même : sur le poste, 25 Gio de RAM utilisés sur 31 et 7 Gio en swap (Proxmox 10 Gio, AWX, Zabbix sous Docker, bureau). La cause n'est pas prouvée. Piste principale : la pression mémoire sur l'hôte en virtualisation imbriquée, que `no-kvmapf` ne couvre qu'en partie. À vérifier au prochain démarrage : `journalctl -k -b -1` dans Proxmox, et réduire la mémoire totale des VMs, ou au moins le swap de l'hôte.
 - **Toute VM du WAN du lab vue comme l'hôte `192.168.122.1` par les pare-feu (13/10/2026).** Constaté depuis `lab-vm-2` sans tunnel : `10.10.10.1:443` et `10.10.20.101:22` ouverts. `tcpdump` sur `eth0` de `fw-debian` : le SYN de `lab-vm-2` arrive avec la source `192.168.122.1`. Chemin : `lab-vm-2` → passerelle = l'hôte → route `10.10.20.0/24 via .120`. Au passage, la règle de libvirt `ip saddr 192.168.122.0/24 ip daddr != 192.168.122.0/24 masquerade` (chaîne `guest_nat` de la table `ip libvirt_network`) masque aussi ce trafic, qui ne quitte pourtant pas le lab. Toutes les règles qui autorisent l'hôte autorisaient donc toute VM du WAN : la menace prévue le 29/09 passait.
   - correction : un hook `/etc/libvirt/hooks/network` pose `ip saddr 192.168.122.0/24 ip daddr 10.10.0.0/16 return` en tête de `guest_nat`
   - premier piège, la position : au démarrage, `libvirtd` repose ses propres règles au-dessus de celle du hook, qui ne sert alors plus à rien (vérifié par `nft list chain`, règle en ligne 9 sous les trois `masquerade`). Le hook supprime puis repose sa règle en tête, et un drop-in systemd (`ExecStartPost`) le relance une fois `libvirtd` prêt
