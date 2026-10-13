@@ -1,0 +1,12 @@
+---
+# Le rôle ne fait rien tant qu'il n'est pas activé pour l'hôte (voir inventory/host_vars).
+wireguard_client_enabled: false
+
+# Une seule clé par hôte, générée sur place : la clé privée ne quitte jamais la VM.
+wireguard_client_key: /etc/wireguard/private.key
+
+# Un tunnel par serveur. Clés : name (nom de l'interface, 15 caractères au plus),
+# address (adresse du client dans le tunnel, en /32), endpoint (adresse:port du serveur),
+# server_pubkey, allowed_ips (réseaux envoyés dans le tunnel : routes ET filtre d'entrée).
+# Tant que server_pubkey est absent, le tunnel n'est pas monté : premier passage = clé seule.
+wireguard_client_tunnels: []

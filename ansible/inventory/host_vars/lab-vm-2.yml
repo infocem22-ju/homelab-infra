@@ -1,2 +1,13 @@
 # lab-vm-2 reste côté WAN, sans OPNsense devant : pare-feu local nftables.
 host_firewall_enabled: true
+
+# Joue le télétravailleur : aucune route vers les LAN, tout passe par WireGuard.
+wireguard_client_enabled: true
+wireguard_client_tunnels:
+  - name: wg-sitea
+    address: 10.10.99.2/32
+    endpoint: 192.168.122.119:51820
+    server_pubkey: rAce8RKVVonC+dfAZVT6xn8zaE94xWdRjs2dl4YQiW4=  # instance teletravail d'OPNsense
+    allowed_ips:
+      - 10.10.99.0/24
+      - 10.10.10.0/24

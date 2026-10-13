@@ -1,0 +1,12 @@
+# {{ ansible_managed }} (rôle wireguard_client)
+[Interface]
+Address = {{ item.address }}
+# Clé privée lue sur place, jamais écrite dans ce fichier ni passée par Ansible.
+PostUp = wg set %i private-key {{ wireguard_client_key }}
+
+[Peer]
+PublicKey = {{ item.server_pubkey }}
+Endpoint = {{ item.endpoint }}
+AllowedIPs = {{ item.allowed_ips | join(', ') }}
+# Le client est derrière un pare-feu à états : il relance le tunnel régulièrement.
+PersistentKeepalive = 25

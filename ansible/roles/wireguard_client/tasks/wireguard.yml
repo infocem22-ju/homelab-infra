@@ -1,0 +1,42 @@
+---
+- name: Install wireguard-tools
+  ansible.builtin.apt:
+    name: wireguard-tools
+    state: present
+    update_cache: true
+
+- name: Generate private key (once)
+  ansible.builtin.shell: umask 077 && wg genkey > {{ wireguard_client_key }}
+  args:
+    creates: "{{ wireguard_client_key }}"
+
+- name: Read public key
+  ansible.builtin.shell: wg pubkey < {{ wireguard_client_key }}
+  register: wireguard_client_pubkey
+  changed_when: false
+  check_mode: false
+
+# À recopier côté serveur (OPNsense, fw-debian) : une clé publique peut être versionnée.
+- name: Show public key
+  ansible.builtin.debug:
+    msg: "Clé publique de {{ inventory_hostname }} : {{ wireguard_client_pubkey.stdout }}"
+
+- name: Deploy tunnel configs
+  ansible.builtin.template:
+    src: tunnel.conf.j2
+    dest: "/etc/wireguard/{{ item.name }}.conf"
+    mode: "0600"
+  loop: "{{ wireguard_client_tunnels | selectattr('server_pubkey', 'defined') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: wireguard_client_conf
+
+# Redémarrage ciblé : seul le tunnel dont la configuration a changé est relancé.
+- name: Enable and (re)start tunnels
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ item.item.name }}"
+    enabled: true
+    state: "{{ 'restarted' if item.changed else 'started' }}"
+  loop: "{{ wireguard_client_conf.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"

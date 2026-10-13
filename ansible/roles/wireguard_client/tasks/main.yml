@@ -1,0 +1,5 @@
+---
+# Pas de `when` sur le rôle : même convention que host_firewall.
+- name: "WireGuard client | tunnels"
+  ansible.builtin.include_tasks: wireguard.yml
+  when: wireguard_client_enabled | bool

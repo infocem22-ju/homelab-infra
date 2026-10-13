@@ -285,10 +285,31 @@ Points notés au démarrage :
 - **Faille trouvée en préparant WireGuard : toute VM du WAN du lab passait pour l'hôte.** Sans aucun tunnel, `lab-vm-2` atteignait l'interface web d'OPNsense (`10.10.10.1:443`) et le SSH du site B (`fw-debian`, `lab-vm-3`). Ces accès ne sont pourtant autorisés qu'à AWX et à l'hôte `192.168.122.1`. Diagnostic et correction : voir Problèmes rencontrés et Décisions.
   - vérifié après correction, depuis `lab-vm-2` : GUI d'OPNsense, SSH du site B et DMZ bloqués, rejets journalisés sur `fw-debian` avec la vraie source `192.168.122.102`. Sites publiés A et B en `200`, Internet joignable
   - vérifié depuis le poste : GUI d'OPNsense et SSH vers `lab-vm-3` toujours accessibles. La correction tient après un `systemctl restart libvirtd`
+- **WireGuard, site A : `lab-vm-2` en télétravailleur vers OPNsense** (voir Décisions) :
+
+  ```
+     lab-vm-2 192.168.122.102 ── UDP 51820 ──► OPNsense .119 (WAN)
+     wg-sitea 10.10.99.2               wg0 « teletravail » 10.10.99.1/24
+        AllowedIPs 10.10.99.0/24, 10.10.10.0/24   │
+                                                   └─► LAN 10.10.10.0/24
+  ```
+
+  - serveur posé par l'API avec `tools/opnsense_wireguard.py` : instance `teletravail` (`wg0`, port `51820`, `10.10.99.1/24`) et pair `lab-vm-2` (`10.10.99.2/32`). Les fonctions d'accès à l'API sont maintenant dans `tools/opnsense_api.py`, partagées avec `tools/opnsense_rules.py`
+  - clé du serveur : OPNsense refuse une instance sans clé privée (`server.privkey: A value is required`). Elle est générée par OPNsense (`wireguard/server/key_pair`) à la création, et ne transite qu'en mémoire dans le script
+  - client : nouveau rôle `wireguard_client` (playbook `36_wireguard_client.yml`, dans `lab-site`). La clé privée est générée sur la VM et n'en sort jamais : la configuration la lit par `PostUp = wg set %i private-key …`. Le rôle affiche la clé publique, à recopier dans le script. Un tunnel n'est monté qu'une fois `server_pubkey` renseignée
+  - règles (`tools/opnsense_rules.py`) :
+
+    | # | Interface | Action | Flux |
+    |---|---|---|---|
+    | 620 | WAN | Pass | UDP 51820 vers l'adresse WAN (entrée du tunnel) |
+    | 800 | WireGuard (groupe) | Pass | `10.10.99.0/24` → LAN |
+    | 810 | WireGuard (groupe) | Block, journalisé | tout le reste, y compris OPNsense par son adresse de tunnel |
+
+- **Vérifié** depuis `lab-vm-2` : handshake établi, routes `10.10.10.0/24` et `10.10.99.0/24` sur `wg-sitea`. Tunnel monté : GUI (`10.10.10.1:443`) et DNS du LAN ouverts, `10.10.99.1:443`, DMZ et site B bloqués. Tunnel coupé (`systemctl stop`) : le LAN est bloqué. Le rôle remonte le tunnel (`changed`), puis un nouveau passage ne change rien.
 
 ### Prochaine session
 
-- Dans l'ordre : WireGuard, IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
+- Dans l'ordre : WireGuard sur `fw-debian` (serveur en Ansible, deuxième tunnel sur `lab-vm-2`), IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
@@ -311,6 +332,7 @@ Points notés au démarrage :
 - **12/10/2026 — Invités du site B en `10.10.41.0/24`, pas `10.10.40.0/24`.** Le numéro de VLAN (40) est le même : un tag n'a de sens qu'à l'intérieur d'un site. Mais deux sites qui seront reliés par IPsec ne doivent pas avoir de sous-réseaux qui se chevauchent, même pour un réseau qui ne passera pas dans le tunnel. Sinon, une route ou une règle écrite pour l'un vise aussi l'autre.
 - **12/10/2026 — Invités de `fw-debian` dans `host_firewall` (liste `guests`), pas dans `forward_rules`.** `forward_rules` décrit ce qui entre du WAN vers le LAN. Les invités vont dans l'autre sens et ont une règle de fond différente (« tout sauf le privé »). Une liste à part garde chaque règle lisible dans `host_vars`.
 - **13/10/2026 — Pas de NAT entre le WAN du lab et les LAN `10.10.0.0/16`, plutôt que de retirer l'hôte des règles.** Le masquage cachait la vraie source : c'est la cause, et on la corrige sur l'hôte, par un hook réseau de libvirt versionné dans `bootstrap/libvirt-hooks/`. Les règles des pare-feu redeviennent justes sans y toucher. L'autre option (ne plus faire confiance à `192.168.122.1` et administrer depuis le poste par WireGuard) reste une piste « zéro confiance » pour plus tard.
+- **13/10/2026 — WireGuard en accès distant (télétravail), tunnel partagé.** `lab-vm-2` sert de poste à distance : depuis la correction du NAT de libvirt, elle n'a plus aucun accès aux LAN sans tunnel, ce qui rend le test probant. Seuls le tunnel et le LAN du site A passent par WireGuard (`AllowedIPs`) : le reste du trafic du client sort normalement, et la règle 810 bloque tout autre usage du tunnel. Réseau de tunnel distinct (`10.10.99.0/24`), pour filtrer les télétravailleurs comme une zone à part.
 
 ## Points ouverts
 

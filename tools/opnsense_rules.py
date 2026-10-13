@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
-"""Règles de la DMZ et du VLAN invités d'OPNsense (site A), posées par l'API.
+"""Règles de la DMZ, du VLAN invités et du WireGuard d'OPNsense (site A), posées par l'API.
 
 Idempotent : chaque règle est retrouvée par sa description et mise à jour,
 pas recréée. Pas de retour arrière automatique : l'API d'OPNsense 26.7 n'a pas
-de savepoint pour ces règles (404). Le script n'ajoute que des règles DMZ,
-INVITES et des Pass WAN → DMZ, il ne touche pas à l'accès au pare-feu lui-même.
+de savepoint pour ces règles (404). Le script n'ajoute que des règles DMZ, INVITES,
+WireGuard et des Pass WAN → DMZ ou WireGuard. Il ne touche pas à l'accès
+d'administration du pare-feu (GUI, SSH).
 
 Clé API : ~/.config/opnsense/apikey.txt (lignes key=… et secret=…, hors repo).
 Usage : tools/opnsense_rules.py [--dry-run]
 """
-import base64
-import json
-import ssl
 import sys
-import urllib.request
-from pathlib import Path
 
-OPNSENSE = "https://192.168.122.119"
-KEYFILE = Path.home() / ".config/opnsense/apikey.txt"
+from opnsense_api import api, check
 
 ALIAS = {
     "name": "reseaux_prives",
@@ -29,6 +24,8 @@ ALIAS = {
 # Lues de haut en bas (sequence), la première qui correspond décide.
 # opt1 = DMZ (vtnet2, 10.10.30.1/24).
 # opt2 = INVITES (VLAN 40 sur vtnet1, 10.10.40.1/24) : Internet seulement.
+# wireguard = groupe des tunnels WireGuard (instance teletravail, wg0, 10.10.99.0/24),
+# voir tools/opnsense_wireguard.py.
 RULES = [
     # --- DMZ ---
     dict(sequence=500, interface="opt1", action="pass", protocol="TCP/UDP",
@@ -78,39 +75,21 @@ RULES = [
     dict(sequence=740, interface="opt2", action="pass", protocol="ICMP",
          source_net="opt2", destination_net="any",
          description="INVITES: ping vers Internet"),
+    # --- WireGuard (télétravail) ---
+    dict(sequence=620, interface="wan", action="pass", protocol="UDP",
+         source_net="any", destination_net="wanip", destination_port="51820",
+         description="WireGuard: entrée du tunnel teletravail"),
+    dict(sequence=800, interface="wireguard", action="pass", protocol="any",
+         source_net="10.10.99.0/24", destination_net="lan",
+         description="TELETRAVAIL: accès au LAN"),
+    # Tunnel partagé (split tunnel) : le client ne doit rien y envoyer d'autre.
+    dict(sequence=810, interface="wireguard", action="block", protocol="any",
+         source_net="any", destination_net="any", log="1",
+         description="TELETRAVAIL: interdit ailleurs"),
 ]
 
 DEFAULTS = dict(enabled="1", quick="1", direction="in", ipprotocol="inet",
                 source_port="", destination_port="", log="0")
-
-
-def load_key():
-    kv = dict(line.split("=", 1) for line in KEYFILE.read_text().split() if "=" in line)
-    return base64.b64encode(f"{kv['key']}:{kv['secret']}".encode()).decode()
-
-
-AUTH = load_key()
-CTX = ssl._create_unverified_context()  # certificat auto-signé du lab
-
-
-def api(path, body=None, timeout=10):
-    headers = {"Authorization": f"Basic {AUTH}"}
-    if body is not None:
-        # Pas sur un GET : OPNsense répond 400 à un Content-Type JSON sans corps.
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(
-        f"{OPNSENSE}/api/{path}",
-        data=None if body is None else json.dumps(body).encode(),
-        headers=headers,
-        method="GET" if body is None else "POST",
-    )
-    with urllib.request.urlopen(req, context=CTX, timeout=timeout) as r:
-        return json.load(r)
-
-
-def check(result, what):
-    if result.get("result") not in ("saved", "ok", "deleted") and result.get("status") != "ok":
-        sys.exit(f"Échec {what} : {result}")
 
 
 def upsert_alias(dry):

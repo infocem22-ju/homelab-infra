@@ -1,0 +1,7 @@
+---
+# N'agit que sur les hôtes où wireguard_client_enabled est vrai (inventory/host_vars).
+- name: VPN - WireGuard client
+  hosts: all
+  become: true
+  roles:
+    - role: wireguard_client

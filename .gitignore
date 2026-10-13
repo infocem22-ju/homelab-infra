@@ -34,3 +34,4 @@ ollama/ignored_domains.json
 ollama/progress.json
 ollama/knowledge/
 ansible/ee/context/
+__pycache__/
