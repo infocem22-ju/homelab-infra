@@ -1,0 +1,43 @@
+#!/bin/sh
+# Hook réseau de libvirt (poste) : le routage entre le WAN du lab et les LAN derrière
+# les pare-feu ne doit pas passer par le NAT. Voir docs/pare-feu.md (13/10/2026).
+#
+# libvirt masque tout ce qui sort de 192.168.122.0/24 (règle masquerade de la table
+# ip libvirt_network), y compris le trafic routé vers 10.10.0.0/16 via OPNsense (.119)
+# et fw-debian (.120). Les pare-feu voyaient alors toute VM du WAN arriver en
+# 192.168.122.1, l'adresse de l'hôte, autorisée par leurs règles d'administration.
+#
+# Installation (sudo), puis redémarrage de libvirtd, qui ne lit les hooks qu'au démarrage
+# (les VMs en cours ne sont pas arrêtées). Le drop-in relance le hook une fois libvirtd
+# prêt, car libvirtd repose ses règles au-dessus de la nôtre en démarrant :
+#   install -D -m 0755 bootstrap/libvirt-hooks/network /etc/libvirt/hooks/network
+#   install -D -m 0644 bootstrap/libvirt-hooks/libvirtd-homelab-nat.conf \
+#       /etc/systemd/system/libvirtd.service.d/homelab-nat.conf
+#   systemctl daemon-reload && systemctl restart libvirtd
+# Contrôle : la règle « homelab » doit précéder les masquerade.
+#   nft list chain ip libvirt_network guest_nat
+#
+# Appelé par libvirt avec : <réseau> <opération> <sous-opération> (XML sur stdin).
+
+NETWORK="default"
+WAN="192.168.122.0/24"
+LANS="10.10.0.0/16"
+TAG="homelab: routage interne, pas de NAT"
+
+[ "$1" = "$NETWORK" ] && [ "$2" = "started" ] || exit 0
+
+# Chaîne qui porte la règle masquerade du réseau (son nom dépend de la version de libvirt).
+chain=$(nft list table ip libvirt_network 2>/dev/null \
+    | awk -v wan="$WAN" '$1 == "chain" { c = $2 } /masquerade/ && index($0, wan) { print c; exit }')
+[ -n "$chain" ] || { echo "libvirt hook: règle masquerade introuvable" >&2; exit 0; }
+
+# Il faut que la règle soit la première de la chaîne : sous un masquerade, elle ne sert
+# plus à rien. Au démarrage, libvirtd repose ses propres règles au-dessus de celles qu'il
+# trouve, donc une règle déjà présente est supprimée puis reposée en tête.
+nft -a list chain ip libvirt_network "$chain" | grep -F "$TAG" | sed 's/.*# handle //' \
+    | while read -r handle; do
+        nft delete rule ip libvirt_network "$chain" handle "$handle"
+    done
+
+nft insert rule ip libvirt_network "$chain" \
+    ip saddr "$WAN" ip daddr "$LANS" counter return comment "\"$TAG\""
