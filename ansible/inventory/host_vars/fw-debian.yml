@@ -36,6 +36,11 @@ host_firewall_rules:
     proto: udp
     port: 67
     iif: eth1.40
+  # Entrée du tunnel de télétravail (rôle wireguard_server), comme la règle 620 d'OPNsense.
+  - name: WireGuard teletravail
+    proto: udp
+    port: 51820
+    iif: eth0
 
 host_firewall_router:
   wan_if: eth0
@@ -69,6 +74,13 @@ host_firewall_router:
           port: 123
         - name: ping vers Internet
           proto: icmp
+  # Comme l'instance teletravail d'OPNsense : les télétravailleurs n'atteignent que le LAN.
+  tunnels:
+    - name: teletravail
+      if: wg0
+      net: 10.10.98.0/24
+      to:
+        - 10.10.20.0/24
   # Comme lab-vm-1 derrière OPNsense : le client ne connaît que l'adresse WAN.
   port_forwards:
     - name: Site de lab-vm-3
@@ -82,6 +94,15 @@ lan_vlans:
   - id: 40
     link: eth1
     address: 10.10.41.1/24
+
+# WireGuard (télétravail), pendant de l'instance teletravail d'OPNsense. Réseau de tunnel
+# distinct de celui du site A (10.10.99.0/24) : pas de chevauchement entre les sites.
+wireguard_server_enabled: true
+wireguard_server_address: 10.10.98.1/24
+wireguard_server_peers:
+  - name: lab-vm-2
+    pubkey: Qk4nVF0KOUWuWjy3tviUczRRNGURi/TI6rn4IVuAnQU=
+    address: 10.10.98.2/32
 
 # DHCP et DNS du LAN, comme le Dnsmasq d'OPNsense sur le site A.
 dnsmasq_lan_interface: eth1

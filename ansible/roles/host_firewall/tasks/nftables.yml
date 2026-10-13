@@ -11,6 +11,7 @@
       - host_firewall_router.wan_if in ansible_interfaces
       - host_firewall_router.lan_if in ansible_interfaces
       - (host_firewall_router.guests | default([]) | map(attribute='if')) is subset(ansible_interfaces)
+      - (host_firewall_router.tunnels | default([]) | map(attribute='if')) is subset(ansible_interfaces)
     fail_msg: "Interfaces de la VM : {{ ansible_interfaces | join(', ') }}"
     quiet: true
   when: host_firewall_router | length > 0

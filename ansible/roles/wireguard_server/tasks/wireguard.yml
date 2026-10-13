@@ -1,0 +1,43 @@
+---
+- name: Install wireguard-tools
+  ansible.builtin.apt:
+    name: wireguard-tools
+    state: present
+    update_cache: true
+
+- name: Generate private key (once)
+  ansible.builtin.shell: umask 077 && wg genkey > {{ wireguard_server_key }}
+  args:
+    creates: "{{ wireguard_server_key }}"
+
+- name: Read public key
+  ansible.builtin.shell: wg pubkey < {{ wireguard_server_key }}
+  register: wireguard_server_pubkey
+  changed_when: false
+  check_mode: false
+
+# À recopier dans server_pubkey côté client (host_vars) : une clé publique peut être versionnée.
+- name: Show public key
+  ansible.builtin.debug:
+    msg: "Clé publique de {{ inventory_hostname }} : {{ wireguard_server_pubkey.stdout }}"
+
+- name: Deploy tunnel config
+  ansible.builtin.template:
+    src: server.conf.j2
+    dest: "/etc/wireguard/{{ wireguard_server_interface }}.conf"
+    mode: "0600"
+  register: wireguard_server_conf
+
+# Un redémarrage coupe les tunnels quelques secondes ; les clients (PersistentKeepalive)
+# refont le handshake d'eux-mêmes.
+- name: Enable and (re)start tunnel
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ wireguard_server_interface }}"
+    enabled: true
+    state: "{{ 'restarted' if wireguard_server_conf is changed else 'started' }}"
+
+# Le rôle host_firewall vérifie que l'interface existe (ansible_interfaces).
+- name: Refresh network facts
+  ansible.builtin.setup:
+    gather_subset: [network]
+  when: wireguard_server_conf is changed

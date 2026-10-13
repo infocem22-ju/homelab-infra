@@ -1,0 +1,13 @@
+# {{ ansible_managed }} (rôle wireguard_server)
+[Interface]
+Address = {{ wireguard_server_address }}
+ListenPort = {{ wireguard_server_port }}
+# Clé privée lue sur place, jamais écrite dans ce fichier ni passée par Ansible.
+PostUp = wg set %i private-key {{ wireguard_server_key }}
+{% for peer in wireguard_server_peers %}
+
+# {{ peer.name }}
+[Peer]
+PublicKey = {{ peer.pubkey }}
+AllowedIPs = {{ peer.address }}
+{% endfor %}

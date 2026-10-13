@@ -11,3 +11,10 @@ wireguard_client_tunnels:
     allowed_ips:
       - 10.10.99.0/24
       - 10.10.10.0/24
+  - name: wg-siteb
+    address: 10.10.98.2/32
+    endpoint: 192.168.122.120:51820
+    server_pubkey: EBFa0Hs/DWJ2TTm4uragD013v8bQ//a0xA4cC8oLVGE=  # wireguard_server de fw-debian
+    allowed_ips:
+      - 10.10.98.0/24
+      - 10.10.20.0/24

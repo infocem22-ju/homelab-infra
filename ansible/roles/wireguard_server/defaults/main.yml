@@ -1,0 +1,15 @@
+---
+# Le rôle ne fait rien tant qu'il n'est pas activé pour l'hôte (voir inventory/host_vars).
+wireguard_server_enabled: false
+
+# Clé générée sur place, comme pour wireguard_client : la clé privée ne quitte pas la VM.
+wireguard_server_key: /etc/wireguard/private.key
+
+# Interface du tunnel, adresse du serveur dans le tunnel (CIDR) et port UDP d'écoute.
+wireguard_server_interface: wg0
+wireguard_server_address: ""
+wireguard_server_port: 51820
+
+# Un pair par client : name, pubkey (affichée par le rôle wireguard_client),
+# address (adresse du client dans le tunnel, en /32 : c'est aussi son filtre d'entrée).
+wireguard_server_peers: []

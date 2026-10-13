@@ -1,0 +1,7 @@
+---
+# Serveur WireGuard des pare-feu Debian (groupe routers), avant les règles nftables.
+- name: VPN - WireGuard server
+  hosts: routers
+  become: true
+  roles:
+    - role: wireguard_server

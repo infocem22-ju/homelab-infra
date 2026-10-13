@@ -306,10 +306,25 @@ Points notés au démarrage :
     | 810 | WireGuard (groupe) | Block, journalisé | tout le reste, y compris OPNsense par son adresse de tunnel |
 
 - **Vérifié** depuis `lab-vm-2` : handshake établi, routes `10.10.10.0/24` et `10.10.99.0/24` sur `wg-sitea`. Tunnel monté : GUI (`10.10.10.1:443`) et DNS du LAN ouverts, `10.10.99.1:443`, DMZ et site B bloqués. Tunnel coupé (`systemctl stop`) : le LAN est bloqué. Le rôle remonte le tunnel (`changed`), puis un nouveau passage ne change rien.
+- **WireGuard, site B : `fw-debian` en serveur, en Ansible**, deuxième tunnel sur `lab-vm-2` :
+  - nouveau rôle `wireguard_server` (playbook `37_wireguard_server.yml`, groupe `routers`, avant nftables) : clé générée sur place, `wg0` en `10.10.98.1/24`, port `51820`, un `[Peer]` par entrée de `wireguard_server_peers`
+  - `host_firewall`, mode routeur : liste `tunnels`. Un réseau de tunnel n'atteint que les réseaux de `to` (ici le LAN `10.10.20.0/24`), et tout le reste tombe sur la politique `drop`, journalisée. Entrée UDP 51820 ouverte sur `eth0` seulement
+  - client : tunnel `wg-siteb` (`10.10.98.2`) ajouté dans `host_vars/lab-vm-2.yml`, à côté de `wg-sitea`. Même clé privée pour les deux tunnels, un pair par serveur
+- **Vérifié** depuis `lab-vm-2`, les deux tunnels montés : handshake sur les deux. `lab-vm-3` ouvert en HTTP et en SSH ; SSH du pare-feu (`10.10.20.1`, `10.10.98.1`) bloqué et journalisé (`nft-drop`, `in=wg0`). Site A toujours joignable par `wg-sitea`, DMZ bloquée. `wg-siteb` coupé : le site B est bloqué. Les rôles rejoués ne changent rien (`changed=0`).
+- **Comparaison OPNsense / nftables sur WireGuard** :
+
+  | | OPNsense (site A) | `fw-debian` (site B) |
+  |---|---|---|
+  | Serveur | API, `tools/opnsense_wireguard.py` (instance + pairs) | rôle `wireguard_server`, `wg-quick@wg0` |
+  | Clé privée du serveur | générée par OPNsense, passe en mémoire par le script à la création | générée sur la VM, ne la quitte jamais |
+  | Filtrage du tunnel | règles sur le groupe d'interfaces `WireGuard`, Block final explicite | liste `tunnels` dans `host_vars`, la politique `drop` fait le reste |
+  | Ajouter un client | un pair dans `PEERS` (script) + la clé publique côté serveur dans `host_vars` | une entrée dans `wireguard_server_peers` |
+  | État du tunnel | `wireguard/service/show` (API) ou Diagnostics | `wg show` |
+
 
 ### Prochaine session
 
-- Dans l'ordre : WireGuard sur `fw-debian` (serveur en Ansible, deuxième tunnel sur `lab-vm-2`), IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
+- Dans l'ordre : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
