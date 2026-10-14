@@ -1,8 +1,13 @@
 ---
+# Collections embarquées dans l'Execution Environment homelab-ee (ansible/ee/execution-environment.yml).
+# AWX ne les télécharge plus à chaque mise à jour du projet (AWX_COLLECTIONS_ENABLED: false,
+# voir ansible/awx/job_templates.yml) : les jobs utilisent celles de l'image.
+# Versions exactes, identiques à l'image homelab-ee:1.0. Pour en changer : modifier ici,
+# reconstruire l'EE avec un nouveau tag, puis mettre ce tag dans job_templates.yml.
 collections:
   - name: community.zabbix
-    version: ">=4.1.1"
+    version: "4.2.0"
   - name: awx.awx
-    version: ">=24.6.0"
+    version: "24.6.1"
   - name: community.proxmox
-    version: ">=2.0.0"
+    version: "2.0.0"

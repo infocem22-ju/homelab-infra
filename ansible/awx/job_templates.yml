@@ -56,6 +56,30 @@
         organization: "{{ awx_organization }}"
         state: present
 
+    # Les collections viennent de l'image homelab-ee, plus de requirements.yml : sans ça, chaque
+    # mise à jour du projet sur un nouveau commit les retéléchargeait depuis Galaxy (de 1 à 18 min,
+    # jobs bloqués en pending pendant ce temps). Réglage global à AWX.
+    - name: Réglage AWX - pas de téléchargement des collections à la mise à jour des projets
+      awx.awx.settings:
+        name: AWX_COLLECTIONS_ENABLED
+        value: false
+
+    # Mise à jour à chaque lancement, sans cache : un job lancé par la CI déploie toujours le dernier commit.
+    # default_environment : tous les Job Templates du projet tournent dans homelab-ee, sauf EE explicite.
+    - name: Projet - homelab-infra (dépôt GitHub, branche master)
+      awx.awx.project:
+        name: "{{ awx_project }}"
+        organization: "{{ awx_organization }}"
+        scm_type: git
+        scm_url: https://github.com/infocem22-ju/homelab-infra
+        scm_branch: master
+        scm_clean: false
+        scm_update_on_launch: true
+        scm_update_cache_timeout: 0
+        allow_override: false
+        default_environment: homelab-ee
+        state: present
+
     # Le credential "zabbix-inventory-creds" (accès API Zabbix) se crée à la main dans l'UI AWX.
     # update_on_launch : sans lui, une VM qui change d'IP reste en cache et le job finit en unreachable.
     - name: Source d'inventaire - homelab-zabbix (plugin community.zabbix.zabbix_inventory)
@@ -66,6 +90,8 @@
         source: scm
         source_project: "{{ awx_project }}"
         source_path: ansible/inventory/zabbix_inventory.yml
+        # Le default_environment du projet ne vaut que pour les Job Templates : à donner ici aussi.
+        execution_environment: homelab-ee
         credential: zabbix-inventory-creds
         update_on_launch: true
         overwrite: false

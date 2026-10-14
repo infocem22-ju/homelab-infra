@@ -321,10 +321,25 @@ Points notés au démarrage :
   | Ajouter un client | un pair dans `PEERS` (script) + la clé publique côté serveur dans `host_vars` | une entrée dans `wireguard_server_peers` |
   | État du tunnel | `wireguard/service/show` (API) ou Diagnostics | `wg show` |
 
+### 14/10/2026
+
+- Stack relancée après le plantage de Proxmox du 13/10. Journal de Proxmox lu, et RAM de `proxmox-lab` verrouillée dans libvirt pour que l'hôte ne puisse plus la mettre en swap (voir Problèmes rencontrés).
+- `lab-vms-provision`, puis `lab-site` : `f286b53` redéployé avec succès, WireGuard du site B revérifié (voir 13/10).
+- **Mises à jour du projet AWX accélérées : collections prises dans l'EE, plus téléchargées** (voir Décisions et le README, partie AWX).
+  - mesure de départ, sur le projet `homelab-infra` (id 8) : une mise à jour simple (`sync`, git seul) prend environ 4 s. Une mise à jour avec dépendances (`dependency`, sur un nouveau commit, avec installation de `requirements.yml` depuis Galaxy) a pris 49 s, 123 s, 584 s, 838 s et 1095 s. Toute la lenteur vient de Galaxy, et elle varie beaucoup d'un jour à l'autre
+  - le plan noté le 13/10 (délai de cache, puis versions exactes) a été abandonné. Le délai de cache ne fait rien pour la première mise à jour après le démarrage d'AWX, justement celle qui bloque. Et un push arrivé pendant le délai aurait déployé l'ancien commit. Les versions exactes, seules, ne suppriment pas le téléchargement
+  - constat : l'image `homelab-ee:1.0` contient déjà les collections de `requirements.yml` (`community.zabbix 4.2.0`, `community.proxmox 2.0.0`, `awx.awx 24.6.1`, relevé avec `ansible-galaxy collection list` dans l'image). Seul `lab-vms-provision` l'utilisait. Les autres Job Templates tournaient dans l'EE par défaut (`awx-ee:latest`), d'où le besoin de télécharger
+  - changements, tous dans `ansible/awx/job_templates.yml` : réglage global `AWX_COLLECTIONS_ENABLED: false`. Le projet `homelab-infra`, jusque-là configuré à la main, est maintenant décrit dans le code, avec `default_environment: homelab-ee`, ce qui couvre tous ses Job Templates, y compris `test-connectivity` qui n'est pas dans le code. La source `zabbix-source` reçoit `execution_environment: homelab-ee`, parce que le réglage du projet ne vaut pas pour les sources d'inventaire. Mise à jour à chaque lancement et cache à 0 conservés
+  - `requirements.yml` : versions exactes, identiques à l'image 1.0. Il ne sert plus qu'à construire l'EE
+  - `--check --diff` avant l'application : 3 changements (le réglage, le projet, la source), rien d'autre. Le journal d'activité du projet ne montre que `default_environment: null → homelab-ee`. Second passage : `changed=0`
+  - vérifié avec `lab-site` lancé à la main (job 222) : réussi en 32 s dans `homelab-ee`. Mise à jour du projet avec dépendances en **2,9 s** (update 223), synchro de `zabbix-source` en 6 s dans `homelab-ee`. Les 4 tâches `changed` par hôte (fichier `trace` du jour, `zabbix-agent2`) l'étaient déjà dans l'ancienne EE (job 218) : pas de régression
+  - au passage : le README annonçait le credential `homelab-token` pour la synchro du dépôt. En réalité, le projet n'a jamais eu de credential (dépôt public, `credential: null` depuis sa création). README corrigé
+  - nouvelle contrainte : ajouter ou changer une collection demande de reconstruire l'image et de changer son tag (procédure dans le README)
+
 
 ### Prochaine session
 
-- **En premier : accélérer les mises à jour du projet AWX** (voir Points ouverts). Délai de cache sur le projet `homelab-infra` (id 8, aujourd'hui `scm_update_cache_timeout = 0` avec mise à jour à chaque lancement), puis versions exactes dans `requirements.yml` au lieu de `>=`. Plus tard : collections dans une image EE
+- **En premier : valider le gain sur un vrai premier démarrage.** Au prochain démarrage d'AWX, regarder la durée de la première mise à jour du projet (`/api/v2/project_updates/?project=8&order_by=-id`), et vérifier qu'un push dans `ansible/` passe par la CI sans attente
 - Ensuite : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
@@ -349,10 +364,11 @@ Points notés au démarrage :
 - **12/10/2026 — Invités de `fw-debian` dans `host_firewall` (liste `guests`), pas dans `forward_rules`.** `forward_rules` décrit ce qui entre du WAN vers le LAN. Les invités vont dans l'autre sens et ont une règle de fond différente (« tout sauf le privé »). Une liste à part garde chaque règle lisible dans `host_vars`.
 - **13/10/2026 — Pas de NAT entre le WAN du lab et les LAN `10.10.0.0/16`, plutôt que de retirer l'hôte des règles.** Le masquage cachait la vraie source : c'est la cause, et on la corrige sur l'hôte, par un hook réseau de libvirt versionné dans `bootstrap/libvirt-hooks/`. Les règles des pare-feu redeviennent justes sans y toucher. L'autre option (ne plus faire confiance à `192.168.122.1` et administrer depuis le poste par WireGuard) reste une piste « zéro confiance » pour plus tard.
 - **13/10/2026 — WireGuard en accès distant (télétravail), tunnel partagé.** `lab-vm-2` sert de poste à distance : depuis la correction du NAT de libvirt, elle n'a plus aucun accès aux LAN sans tunnel, ce qui rend le test probant. Seuls le tunnel et le LAN du site A passent par WireGuard (`AllowedIPs`) : le reste du trafic du client sort normalement, et la règle 810 bloque tout autre usage du tunnel. Réseau de tunnel distinct (`10.10.99.0/24`), pour filtrer les télétravailleurs comme une zone à part.
+- **14/10/2026 — Collections AWX dans l'image `homelab-ee`, plus téléchargées à la mise à jour du projet.** Le projet reste mis à jour à chaque lancement, sans cache, pour que la CI déploie toujours le dernier commit. C'est donc le téléchargement qui disparaît, pas la mise à jour. Avantages : une mise à jour du projet prend quelques secondes, sans dépendre de Galaxy, et tous les jobs tournent dans la même image épinglée, ce qui les rend reproductibles. Inconvénient accepté : une nouvelle collection demande de reconstruire l'image. C'est rare dans ce lab, et c'est la pratique recommandée pour AWX en production.
 
 ## Points ouverts
 
-- **Première mise à jour du projet AWX après démarrage : 4 à 14 minutes** (projets 197, 201, 203, 207), presque tout dans le téléchargement des collections de `requirements.yml`. Les jobs lancés pendant ce temps restent en `pending`, y compris le pipeline. Pistes : garder les collections dans l'environnement d'exécution, ou ne plus mettre à jour le projet à chaque lancement.
+- **Première mise à jour du projet AWX après démarrage : 4 à 14 minutes** (projets 197, 201, 203, 207), presque tout dans le téléchargement des collections de `requirements.yml`. Les jobs lancés pendant ce temps restent en `pending`, y compris le pipeline. Pistes : garder les collections dans l'environnement d'exécution, ou ne plus mettre à jour le projet à chaque lancement. **Réglé le 14/10/2026 : collections dans l'EE (voir Journal et Décisions). Mise à jour avec dépendances en 2,9 s, à confirmer sur un premier démarrage d'AWX.**
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés

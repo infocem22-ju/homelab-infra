@@ -130,7 +130,7 @@ AWX est déployé sur une VM KVM dédiée (Debian 12 + k3s + AWX Operator).
 Credentials configurés :
 - **ssh-homelab** : clé SSH (user `ansible`) pour accès aux VMs lab
 - **proxmox-api** : token API Proxmox (credential type custom « Proxmox API », injecté en variables d'env `PROXMOX_*`)
-- **homelab-token** : token GitHub pour sync du repo (Source Control)
+- **homelab-token** : token GitHub (type « GitHub Personal Access Token »). Il n'est rattaché à aucun projet : le dépôt est public et le projet `homelab-infra` le clone sans credential
 - **zabbix-inventory-creds** : credential type custom pour l'inventaire dynamique
 
 Inventaires :
@@ -139,13 +139,22 @@ Inventaires :
 
 > **Note** : le plugin `community.zabbix.zabbix_inventory` ne résout pas les variables d'environnement injectées par AWX (bug connu [#713](https://github.com/ansible-collections/community.zabbix/issues/713)). Le fichier d'inventaire est donc versionné avec les identifiants en clair : ce sont les identifiants par défaut (`Admin`/`zabbix`) d'un Zabbix de lab non exposé, et AWX doit pouvoir lire le fichier depuis le Project Git.
 
+Projet **homelab-infra** : branche `master`, mis à jour à chaque lancement de job (pas de cache, la CI déploie toujours le dernier commit). Tous ses Job Templates tournent dans l'EE `homelab-ee` (`default_environment` du projet), la source d'inventaire `zabbix-source` aussi.
+
 Job Templates :
-- **lab-vms-provision** : `ansible/playbooks/proxmox_provision_vms.yml` sur l'inventaire `homelab` — clone/configure/démarre les VMs lab sur Proxmox (EE `homelab-ee`)
+- **lab-vms-provision** : `ansible/playbooks/proxmox_provision_vms.yml` sur l'inventaire `homelab` — clone/configure/démarre les VMs lab sur Proxmox
 - **lab-vms-bootstrap** : `ansible/playbooks/bootstrap_lab_vms.yml` sur l'inventaire `homelab-zabbix` — installe/configure zabbix-agent2
 - **lab-vms-shutdown** : `ansible/playbooks/shutdown_lab_vms.yml` sur l'inventaire `homelab` — arrêt propre des VMs
 - **lab-site** : `ansible/playbooks/lab_site.yml` sur l'inventaire `homelab-zabbix` — pipeline de déploiement, déclenché par GitHub Actions
 
 Execution Environment **homelab-ee** (`ansible/ee/execution-environment.yml`) : image `awx-ee` épinglée (ansible-core 2.18) + `proxmoxer` + collections du repo, publiée sur `ghcr.io/infocem22-ju/homelab-ee:1.0`.
+
+Les collections viennent **uniquement de l'image** : AWX ne télécharge plus `requirements.yml` à la mise à jour du projet (réglage `AWX_COLLECTIONS_ENABLED: false`). Une mise à jour du projet prend donc quelques secondes au lieu de 1 à 18 minutes. `requirements.yml` sert à construire l'image, avec des versions exactes. Pour ajouter ou changer une collection :
+1. modifier `requirements.yml` ;
+2. reconstruire et publier l'image avec un nouveau tag : `cd ansible/ee && ansible-builder build -t ghcr.io/infocem22-ju/homelab-ee:<tag>`, puis `podman push` (ou `docker push`) ;
+3. mettre le nouveau tag dans la tâche « Execution Environment - homelab-ee » de `ansible/awx/job_templates.yml` et rejouer ce playbook.
+
+Sans l'étape 2, AWX ne voit pas la nouvelle collection et le job échoue (`couldn't resolve module/action`). Pour lister le contenu de l'image : `docker run --rm -e HOME=/tmp --entrypoint ansible-galaxy ghcr.io/infocem22-ju/homelab-ee:<tag> collection list`.
 
 Définis de façon idempotente via `ansible/awx/job_templates.yml` (collection `awx.awx`, auth par token API — voir `ansible/awx/.env`, gitignoré) :
 
@@ -161,7 +170,7 @@ Déclenché sur push dans `ansible/` ou manuellement (`workflow_dispatch`). Le r
 
 Pipeline :
 1. GitHub Actions lance le Job Template AWX `lab-site` (`POST /api/v2/job_templates/<id>/launch/`)
-2. AWX synchronise le projet Git et exécute `lab_site.yml` sur les VMs lab : trace de connexion, nginx, zabbix-agent2
+2. AWX synchronise le projet Git (git seul, quelques secondes) et exécute `lab_site.yml` sur les VMs lab : trace de connexion, nginx, zabbix-agent2
 3. Le runner interroge le statut du job jusqu'à la fin ; en cas d'échec, les 50 dernières lignes du job AWX sont affichées dans le run GitHub
 
 Secrets GitHub requis : `AWX_HOST` (`http://192.168.122.148:30080`) et `AWX_TOKEN` (token OAuth AWX dédié, scope write).
