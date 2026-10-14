@@ -335,11 +335,12 @@ Points notés au démarrage :
   - vérifié avec `lab-site` lancé à la main (job 222) : réussi en 32 s dans `homelab-ee`. Mise à jour du projet avec dépendances en **2,9 s** (update 223), synchro de `zabbix-source` en 6 s dans `homelab-ee`. Les 4 tâches `changed` par hôte (fichier `trace` du jour, `zabbix-agent2`) l'étaient déjà dans l'ancienne EE (job 218) : pas de régression
   - au passage : le README annonçait le credential `homelab-token` pour la synchro du dépôt. En réalité, le projet n'a jamais eu de credential (dépôt public, `credential: null` depuis sa création). README corrigé
   - nouvelle contrainte : ajouter ou changer une collection demande de reconstruire l'image et de changer son tag (procédure dans le README)
+  - vérifié de bout en bout par la CI, en poussant `ae440c6` : le runner a lancé `lab-site` (job 226), avec la mise à jour du projet sur le nouveau commit en **3,1 s** (update 227, au lieu de minutes). Job réussi en 31 s dans `homelab-ee`, même récapitulatif que le job 222
 
 
 ### Prochaine session
 
-- **En premier : valider le gain sur un vrai premier démarrage.** Au prochain démarrage d'AWX, regarder la durée de la première mise à jour du projet (`/api/v2/project_updates/?project=8&order_by=-id`), et vérifier qu'un push dans `ansible/` passe par la CI sans attente
+- **En premier : valider le gain sur un vrai premier démarrage.** Au prochain démarrage d'AWX, regarder la durée de la première mise à jour du projet (`/api/v2/project_updates/?project=8&order_by=-id`). Le passage par la CI est déjà vérifié (job 226)
 - Ensuite : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
