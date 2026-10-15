@@ -62,12 +62,16 @@
       when:
         - lab_crash_nic is changed
         - lab_crash_info.proxmox_vms[0].status == 'running'
+      register: lab_crash_restart
 
+    # Pas juste après un redémarrage : Proxmox répond 500 pendant que l'ancien QEMU disparaît
+    # (« failed to open PSS memory-stat from process - No such process », job 248).
     - name: Démarrer la VM
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ lab_crash_vmid }}"
         state: started
+      when: lab_crash_restart is skipped
 
     - name: Réseau attendu
       ansible.builtin.debug:
