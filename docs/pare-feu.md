@@ -337,11 +337,14 @@ Points notés au démarrage :
   - nouvelle contrainte : ajouter ou changer une collection demande de reconstruire l'image et de changer son tag (procédure dans le README)
   - vérifié de bout en bout par la CI, en poussant `ae440c6` : le runner a lancé `lab-site` (job 226), avec la mise à jour du projet sur le nouveau commit en **3,1 s** (update 227, au lieu de minutes). Job réussi en 31 s dans `homelab-ee`, même récapitulatif que le job 222
 
+### 15/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX) sur un poste qui sortait d'un arrêt complet. OPNsense et `lab-vm-2` démarrent seules, `fw-debian` reste éteinte.
+- **Gain sur les mises à jour du projet AWX confirmé sur un vrai premier démarrage.** API d'AWX disponible 34 s après le démarrage de la VM. Première mise à jour du projet 8 (update 230, lancée à la main) : **4,1 s** dans `homelab-ee`, avec les trois tâches Galaxy sautées (`skipped=4`). Avant le passage des collections dans l'EE, il fallait compter 4 à 14 minutes.
 
 ### Prochaine session
 
-- **En premier : valider le gain sur un vrai premier démarrage.** Au prochain démarrage d'AWX, regarder la durée de la première mise à jour du projet (`/api/v2/project_updates/?project=8&order_by=-id`). Le passage par la CI est déjà vérifié (job 226)
-- Ensuite : IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
+- IPsec site-à-site entre OPNsense et `fw-debian` (LAN à LAN : les réseaux invités restent hors du tunnel)
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
@@ -369,7 +372,7 @@ Points notés au démarrage :
 
 ## Points ouverts
 
-- **Première mise à jour du projet AWX après démarrage : 4 à 14 minutes** (projets 197, 201, 203, 207), presque tout dans le téléchargement des collections de `requirements.yml`. Les jobs lancés pendant ce temps restent en `pending`, y compris le pipeline. Pistes : garder les collections dans l'environnement d'exécution, ou ne plus mettre à jour le projet à chaque lancement. **Réglé le 14/10/2026 : collections dans l'EE (voir Journal et Décisions). Mise à jour avec dépendances en 2,9 s, à confirmer sur un premier démarrage d'AWX.**
+- **Première mise à jour du projet AWX après démarrage : 4 à 14 minutes** (projets 197, 201, 203, 207), presque tout dans le téléchargement des collections de `requirements.yml`. Les jobs lancés pendant ce temps restent en `pending`, y compris le pipeline. Pistes : garder les collections dans l'environnement d'exécution, ou ne plus mettre à jour le projet à chaque lancement. **Réglé le 14/10/2026 : collections dans l'EE (voir Journal et Décisions). Mise à jour avec dépendances en 2,9 s. Confirmé le 15/10 sur un premier démarrage d'AWX : 4,1 s.**
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
