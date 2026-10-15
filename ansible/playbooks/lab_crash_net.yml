@@ -1,7 +1,7 @@
 ---
-# Bascule le réseau de lab-crash-1 (VM 103, sur vmbr1 d'OPNsense) entre le VLAN 40 (invités)
-# et le LAN non étiqueté du site A (10.10.10.50, réservé dans le Dnsmasq d'OPNsense).
-# Lancé par AWX (Job Template lab-crash-net, questionnaire lan / invites).
+# Branche lab-crash-1 (VM 103) sur le LAN ou le VLAN 40 (invités) de l'un des deux sites :
+# site A = vmbr1 (OPNsense, 10.10.10.50 réservé dans son Dnsmasq), site B = vmbr2 (fw-debian).
+# Lancé par AWX (Job Template lab-crash-net, questionnaire lan-a / invites-a / lan-b / invites-b).
 # Auth Proxmox via env, comme proxmox_provision_vms.yml (credential AWX proxmox-api).
 - name: Réseau de lab-crash-1
   hosts: localhost
@@ -10,16 +10,18 @@
   vars:
     proxmox_node: proxmox-lab
     lab_crash_vmid: 103
-    lab_crash_net: invites
-    lab_crash_tags:
-      lan: ""
-      invites: "40"
+    lab_crash_net: invites-b
+    lab_crash_nets:
+      lan-a: {bridge: vmbr1, tag: "", addr: "10.10.10.50 (réservée)"}
+      invites-a: {bridge: vmbr1, tag: "40", addr: "DHCP en 10.10.40.200-249"}
+      lan-b: {bridge: vmbr2, tag: "", addr: "DHCP en 10.10.20.x"}
+      invites-b: {bridge: vmbr2, tag: "40", addr: "DHCP en 10.10.41.200-249"}
 
   tasks:
     - name: Vérifier le réseau demandé
       ansible.builtin.assert:
-        that: lab_crash_net in lab_crash_tags
-        fail_msg: "lab_crash_net doit valoir {{ lab_crash_tags.keys() | join(' ou ') }}"
+        that: lab_crash_net in lab_crash_nets
+        fail_msg: "lab_crash_net doit valoir {{ lab_crash_nets.keys() | join(', ') }}"
         quiet: true
 
     - name: Lire la configuration de la VM
@@ -29,24 +31,28 @@
         config: current
       register: lab_crash_info
 
-    # On ne touche qu'au tag : MAC (donc réservation DHCP), bridge et autres options restent.
-    - name: Changer le tag VLAN de la carte
+    # On ne touche qu'au bridge et au tag : MAC (donc réservation DHCP) et autres options restent.
+    - name: Changer le bridge et le tag VLAN de la carte
       community.proxmox.proxmox_kvm:
         node: "{{ proxmox_node }}"
         vmid: "{{ lab_crash_vmid }}"
         net:
-          net0: "{{ nic_untagged ~ ((',tag=' ~ nic_tag) if nic_tag else '') }}"
+          net0: "{{ nic_wanted }}"
         state: present
         update: true
         update_unsafe: true
       vars:
         nic_conf: "{{ lab_crash_info.proxmox_vms[0].config.net0 }}"
-        nic_untagged: "{{ nic_conf | regex_replace(',tag=[0-9]+', '') }}"
-        nic_tag: "{{ lab_crash_tags[lab_crash_net] }}"
+        nic_net: "{{ lab_crash_nets[lab_crash_net] }}"
+        nic_wanted: >-
+          {{ nic_conf | regex_replace(',tag=[0-9]+', '')
+             | regex_replace('bridge=[^,]+', 'bridge=' ~ nic_net.bridge) }}{{
+             (',tag=' ~ nic_net.tag) if nic_net.tag else '' }}
       register: lab_crash_nic
-      when: nic_conf != nic_untagged ~ ((',tag=' ~ nic_tag) if nic_tag else '')
+      # Comparaison sans l'ordre : Proxmox range les options à sa façon.
+      when: (nic_conf.split(',') | sort) != (nic_wanted.split(',') | sort)
 
-    # Le tag change à chaud dans Proxmox, mais la VM garde son ancien bail :
+    # Bridge et tag changent à chaud dans Proxmox, mais la VM garde son ancien bail :
     # un redémarrage lui fait redemander une adresse dans le nouveau réseau.
     - name: Redémarrer la VM (nouveau bail DHCP)
       community.proxmox.proxmox_kvm:
@@ -65,6 +71,4 @@
 
     - name: Réseau attendu
       ansible.builtin.debug:
-        msg: >-
-          lab-crash-1 sur {{ lab_crash_net }} :
-          {{ '10.10.10.50 (LAN du site A)' if lab_crash_net == 'lan' else 'DHCP en 10.10.40.200-249 (invités)' }}
+        msg: "lab-crash-1 sur {{ lab_crash_net }} ({{ lab_crash_nets[lab_crash_net].bridge }}) : {{ lab_crash_nets[lab_crash_net].addr }}"

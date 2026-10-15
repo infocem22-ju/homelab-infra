@@ -141,7 +141,7 @@
     - name: Job Template - Réseau de lab-crash-1 (LAN du site A ou VLAN invités)
       awx.awx.job_template:
         name: lab-crash-net
-        description: "Bascule lab-crash-1 entre le LAN du site A et le VLAN 40 (lab_crash_net.yml)"
+        description: "Branche lab-crash-1 sur le LAN ou les invités du site A ou B (lab_crash_net.yml)"
         organization: "{{ awx_organization }}"
         project: "{{ awx_project }}"
         playbook: ansible/playbooks/lab_crash_net.yml
@@ -157,8 +157,8 @@
             - question_name: Réseau de lab-crash-1
               variable: lab_crash_net
               type: multiplechoice
-              choices: [lan, invites]
-              default: invites
+              choices: [lan-a, invites-a, lan-b, invites-b]
+              default: invites-b
               required: true
         state: present
 
