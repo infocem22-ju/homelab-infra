@@ -138,6 +138,30 @@
         job_type: run
         state: present
 
+    - name: Job Template - Réseau de lab-crash-1 (LAN du site A ou VLAN invités)
+      awx.awx.job_template:
+        name: lab-crash-net
+        description: "Bascule lab-crash-1 entre le LAN du site A et le VLAN 40 (lab_crash_net.yml)"
+        organization: "{{ awx_organization }}"
+        project: "{{ awx_project }}"
+        playbook: ansible/playbooks/lab_crash_net.yml
+        inventory: homelab
+        credentials:
+          - proxmox-api
+        job_type: run
+        survey_enabled: true
+        survey_spec:
+          name: ""
+          description: ""
+          spec:
+            - question_name: Réseau de lab-crash-1
+              variable: lab_crash_net
+              type: multiplechoice
+              choices: [lan, invites]
+              default: invites
+              required: true
+        state: present
+
     - name: Job Template - Déploiement lab-site (déclenché par GitHub Actions)
       awx.awx.job_template:
         name: lab-site
