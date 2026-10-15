@@ -31,4 +31,6 @@ host_firewall_rollback_delay: 60
 # jamais vers une adresse privée, sur les flux de allow (name, proto, port)
 # et tunnels (name, if, net, to) : réseaux de tunnel VPN (rôle wireguard_server),
 # n'atteignent que les réseaux de to ; le reste tombe sur la politique drop.
+# et ipsec (name, peer, remote_net) : tunnels site à site (rôle ipsec_site), IKE et ESP
+# depuis peer, remote_net déchiffré vers le LAN, et pas de NAT du LAN vers remote_net.
 host_firewall_router: {}

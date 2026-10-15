@@ -1,0 +1,21 @@
+---
+# Le rôle ne fait rien tant qu'il n'est pas activé pour l'hôte (voir inventory/host_vars).
+ipsec_site_enabled: false
+
+# Paire de clés RSA générée sur place, comme pour WireGuard : la clé privée ne quitte pas la VM.
+# swanctl charge tout ce qui est dans /etc/swanctl/private et retrouve la clé par la clé publique.
+ipsec_site_name: site
+ipsec_site_key_bits: 3072
+
+# Adresse WAN locale : extrémité du tunnel et identité IKE.
+ipsec_site_local_addr: ""
+
+# Mêmes propositions des deux côtés, sinon la négociation échoue (NO_PROPOSAL_CHOSEN).
+ipsec_site_ike_proposals: aes256gcm16-sha256-ecp256
+ipsec_site_esp_proposals: aes256gcm16-ecp256
+
+# Un pair par site distant : name, addr (adresse WAN du pair, aussi son identité),
+# pubkey (clé publique PEM du pair, affichée par son outil), local_ts et remote_ts
+# (réseaux à faire passer dans le tunnel, de chaque côté).
+# Sans pubkey, le pair est ignoré : premier passage pour générer la clé et l'afficher.
+ipsec_site_peers: []

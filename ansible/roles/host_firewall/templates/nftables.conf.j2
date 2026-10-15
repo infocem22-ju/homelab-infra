@@ -3,6 +3,7 @@
 {% set router = host_firewall_router %}
 {% set guests = router.guests | default([]) if router else [] %}
 {% set tunnels = router.tunnels | default([]) if router else [] %}
+{% set ipsec = router.ipsec | default([]) if router else [] %}
 
 flush ruleset
 {% if guests %}
@@ -29,6 +30,10 @@ table inet filter {
 {% for rule in host_firewall_rules %}
         {% if rule.iif is defined %}iifname "{{ rule.iif }}" {% endif %}{% if rule.sources is defined %}ip saddr { {{ rule.sources | join(', ') }} } {% endif %}{{ rule.proto | default('tcp') }} dport { {{ [rule.port] | flatten | join(', ') }} } accept comment "{{ rule.name }}"
 {% endfor %}
+{% for site in ipsec %}
+        iifname "{{ router.wan_if }}" ip saddr {{ site.peer }} udp dport { 500, 4500 } accept comment "IPsec {{ site.name }} : IKE"
+        iifname "{{ router.wan_if }}" ip saddr {{ site.peer }} meta l4proto esp accept comment "IPsec {{ site.name }} : ESP"
+{% endfor %}
 {% if host_firewall_log_drops %}
 
         limit rate 5/minute log prefix "nft-drop: "
@@ -54,6 +59,11 @@ table inet filter {
 {% for tunnel in tunnels %}
         iifname "{{ tunnel.if }}" ip saddr {{ tunnel.net }} ip daddr { {{ tunnel.to | join(', ') }} } accept comment "{{ tunnel.name }} : accès autorisé"
 {% endfor %}
+{% for site in ipsec %}
+        # meta ipsec exists : le paquet sort du déchiffrement. Une adresse du site distant
+        # qui arriverait en clair par le WAN (usurpée) ne passe pas.
+        iifname "{{ router.wan_if }}" meta ipsec exists ip saddr {{ site.remote_net }} ip daddr {{ router.lan_net }} accept comment "IPsec {{ site.name }} : vers le LAN"
+{% endfor %}
         # Le trafic redirigé par la table nat (prerouting) arrive ici avec sa destination LAN.
         ct status dnat accept comment "Redirections de ports"
 {% if host_firewall_log_drops %}
@@ -73,12 +83,18 @@ table ip nat {
     chain prerouting {
         type nat hook prerouting priority dstnat; policy accept;
 {% for fwd in router.port_forwards | default([]) %}
-        iifname "{{ router.wan_if }}" {{ fwd.proto | default('tcp') }} dport {{ fwd.port }} dnat to {{ fwd.to }}:{{ fwd.to_port | default(fwd.port) }} comment "{{ fwd.name }}"
+        # fib daddr type local : seulement ce qui vise le pare-feu lui-même, pas une
+        # machine du LAN jointe directement (route d'administration, tunnel IPsec).
+        iifname "{{ router.wan_if }}" fib daddr type local {{ fwd.proto | default('tcp') }} dport {{ fwd.port }} dnat to {{ fwd.to }}:{{ fwd.to_port | default(fwd.port) }} comment "{{ fwd.name }}"
 {% endfor %}
     }
 
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
+{% for site in ipsec %}
+        # Sans NAT : la politique IPsec ne vise que les adresses du LAN.
+        oifname "{{ router.wan_if }}" ip saddr {{ router.lan_net }} ip daddr {{ site.remote_net }} accept comment "IPsec {{ site.name }} : pas de NAT"
+{% endfor %}
         oifname "{{ router.wan_if }}" ip saddr {{ router.lan_net }} masquerade comment "NAT sortant du LAN"
 {% for guest in guests %}
         oifname "{{ router.wan_if }}" ip saddr {{ guest.net }} masquerade comment "NAT sortant de {{ guest.name }}"

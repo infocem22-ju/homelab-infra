@@ -1,0 +1,65 @@
+---
+# charon-systemd : démon IKE piloté par swanctl (pas l'ancien ipsec.conf / starter).
+- name: Install strongSwan (charon-systemd, swanctl)
+  ansible.builtin.apt:
+    name:
+      - charon-systemd
+      - strongswan-swanctl
+    state: present
+    update_cache: true
+
+- name: Generate private key (once)
+  ansible.builtin.shell: >-
+    umask 077 && openssl genpkey -algorithm RSA
+    -pkeyopt rsa_keygen_bits:{{ ipsec_site_key_bits }}
+    -out /etc/swanctl/private/{{ ipsec_site_name }}.pem
+  args:
+    creates: "/etc/swanctl/private/{{ ipsec_site_name }}.pem"
+
+- name: Write public key
+  ansible.builtin.shell: >-
+    openssl pkey -in /etc/swanctl/private/{{ ipsec_site_name }}.pem -pubout
+    -out /etc/swanctl/pubkey/{{ ipsec_site_name }}.pub
+  args:
+    creates: "/etc/swanctl/pubkey/{{ ipsec_site_name }}.pub"
+
+# En --check sur une VM neuve, la clé n'existe pas encore : rien à lire.
+- name: Read public key
+  ansible.builtin.slurp:
+    src: "/etc/swanctl/pubkey/{{ ipsec_site_name }}.pub"
+  register: ipsec_site_pubkey
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# À recopier côté pair (tools/opnsense_ipsec.py) : une clé publique peut être versionnée.
+- name: Show public key
+  ansible.builtin.debug:
+    msg: "{{ (ipsec_site_pubkey.content | b64decode).splitlines() }}"
+  when: ipsec_site_pubkey.content is defined
+
+- name: Deploy peer public keys
+  ansible.builtin.copy:
+    dest: "/etc/swanctl/pubkey/{{ item.name }}.pub"
+    content: "{{ item.pubkey | trim }}\n"
+    mode: "0644"
+  loop: "{{ ipsec_site_peers | selectattr('pubkey', 'defined') }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload swanctl
+
+- name: Deploy connections
+  ansible.builtin.template:
+    src: swanctl.conf.j2
+    dest: "/etc/swanctl/conf.d/{{ ipsec_site_name }}.conf"
+    mode: "0644"
+  notify: Reload swanctl
+
+- name: Enable and start strongSwan
+  ansible.builtin.systemd_service:
+    name: strongswan
+    enabled: true
+    state: started
+
+# Recharger tout de suite : la vérification du tunnel par le rôle host_firewall
+# (ou un test juste après) doit voir la nouvelle configuration.
+- name: Apply pending reload
+  ansible.builtin.meta: flush_handlers

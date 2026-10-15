@@ -81,6 +81,12 @@ host_firewall_router:
       net: 10.10.98.0/24
       to:
         - 10.10.20.0/24
+  # IPsec site à site (rôle ipsec_site) : IKE et ESP depuis le pair seulement,
+  # et seul le réseau distant, arrivé par le tunnel, entre dans le LAN.
+  ipsec:
+    - name: site A
+      peer: 192.168.122.119
+      remote_net: 10.10.10.0/24
   # Comme lab-vm-1 derrière OPNsense : le client ne connaît que l'adresse WAN.
   port_forwards:
     - name: Site de lab-vm-3
@@ -119,3 +125,27 @@ dnsmasq_lan_hosts:
     ip: 10.10.20.1
   - name: lab-vm-3
     ip: 10.10.20.101
+
+# IPsec site à site avec OPNsense (site A, tools/opnsense_ipsec.py) : LAN à LAN seulement,
+# les invités (10.10.41.0/24 ici, 10.10.40.0/24 là-bas) et la DMZ restent hors du tunnel.
+ipsec_site_enabled: true
+ipsec_site_name: site-b
+ipsec_site_local_addr: 192.168.122.120
+ipsec_site_peers:
+  - name: site-a
+    addr: 192.168.122.119
+    local_ts: [10.10.20.0/24]
+    remote_ts: [10.10.10.0/24]
+    # Paire générée par OPNsense (tools/opnsense_ipsec.py, qui affiche cette clé).
+    pubkey: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA4iW+p7ho0vvPOy0Y2ECc
+      A6koBjUZMSMvIB1ERYtCQFfevFbQXNi5btUdQZw/bgt4PxJCPJkCbQIOatFT/I0r
+      6/ffr4TVyz/QVGRVAxg7AYbd/MO3+ENmNQHUtxJ0p1X2K/9272ij/ZaZgijGBBL5
+      ouHeQcP52v7wBScJdr7SMqG40UuEjGat1yX0h/Um7VxAo+Sq9W6fdVdt1480Osn7
+      o8GiTQ2AIQXNvP0OLuEkUsJ2OWEguomVY7YBec0sdRoW6XCpX30UAnYwlhZjE7dw
+      PjFQU8UOE+yYEHQUUCYxT80Ui96kcoCUcf6hJNGZU7SbdcLsA2puuk6dYlPIJnR3
+      2JZPY5JmaoygsAjm8bfqvnv8ky5PP+ce+1cEDeoCc6WvMn+zxthQYcHQP9YkUHeP
+      zzIffW2FiQ5aVBJmou5xsYTiK4/S9UUJ5QKvCqDiBioS/xm/9RpsT/tffRRcSDI0
+      gb+fySC4rgFfwlqTdUAZi8EsA5l/0lUyAznaofpXfcqFAgMBAAE=
+      -----END PUBLIC KEY-----

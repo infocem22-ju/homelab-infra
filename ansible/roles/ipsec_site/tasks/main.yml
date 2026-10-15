@@ -1,0 +1,5 @@
+---
+# Pas de `when` sur le rôle : même convention que host_firewall.
+- name: "IPsec site | tunnels"
+  ansible.builtin.include_tasks: ipsec.yml
+  when: ipsec_site_enabled | bool

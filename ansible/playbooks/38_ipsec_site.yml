@@ -1,0 +1,7 @@
+---
+# IPsec site à site des pare-feu Debian (groupe routers), avant les règles nftables.
+- name: VPN - IPsec site to site
+  hosts: routers
+  become: true
+  roles:
+    - role: ipsec_site

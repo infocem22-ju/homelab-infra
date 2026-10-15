@@ -1,0 +1,36 @@
+# {{ ansible_managed }} (rôle ipsec_site)
+# Tunnels site à site, en mode politique : seul le trafic entre local_ts et remote_ts
+# est chiffré, tout le reste suit la table de routage normale.
+connections {
+{% for peer in ipsec_site_peers | selectattr('pubkey', 'defined') %}
+    {{ peer.name }} {
+        version = 2
+        local_addrs = {{ ipsec_site_local_addr }}
+        remote_addrs = {{ peer.addr }}
+        proposals = {{ ipsec_site_ike_proposals }}
+        dpd_delay = 30s
+
+        local {
+            auth = pubkey
+            id = {{ ipsec_site_local_addr }}
+            pubkeys = {{ ipsec_site_name }}.pub
+        }
+        remote {
+            auth = pubkey
+            id = {{ peer.addr }}
+            pubkeys = {{ peer.name }}.pub
+        }
+        children {
+            {{ peer.name }}-lan {
+                local_ts = {{ peer.local_ts | join(',') }}
+                remote_ts = {{ peer.remote_ts | join(',') }}
+                esp_proposals = {{ ipsec_site_esp_proposals }}
+                # Le pair monte le tunnel ; ici, le premier paquet vers le site distant
+                # le monte aussi (trap), et une coupure détectée le remet en attente.
+                start_action = trap
+                dpd_action = trap
+            }
+        }
+    }
+{% endfor %}
+}
