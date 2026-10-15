@@ -144,6 +144,7 @@ Projet **homelab-infra** : branche `master`, mis à jour à chaque lancement de 
 Job Templates :
 - **lab-vms-provision** : `ansible/playbooks/proxmox_provision_vms.yml` sur l'inventaire `homelab` — clone/configure/démarre les VMs lab sur Proxmox
 - **lab-vms-bootstrap** : `ansible/playbooks/bootstrap_lab_vms.yml` sur l'inventaire `homelab-zabbix` — installe/configure zabbix-agent2
+- **lab-crash-net** : `ansible/playbooks/lab_crash_net.yml` sur l'inventaire `homelab` — branche `lab-crash-1` sur le LAN ou les invités du site A ou B (questionnaire)
 - **lab-vms-shutdown** : `ansible/playbooks/shutdown_lab_vms.yml` sur l'inventaire `homelab` — arrêt propre des VMs
 - **lab-site** : `ansible/playbooks/lab_site.yml` sur l'inventaire `homelab-zabbix` — pipeline de déploiement, déclenché par GitHub Actions
 
