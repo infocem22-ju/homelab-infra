@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Règles de la DMZ, du VLAN invités et du WireGuard d'OPNsense (site A), posées par l'API.
+"""Règles de la DMZ, du VLAN invités, du WireGuard et de l'IPsec d'OPNsense (site A), posées par l'API.
 
 Idempotent : chaque règle est retrouvée par sa description et mise à jour,
 pas recréée. Pas de retour arrière automatique : l'API d'OPNsense 26.7 n'a pas
 de savepoint pour ces règles (404). Le script n'ajoute que des règles DMZ, INVITES,
-WireGuard et des Pass WAN → DMZ ou WireGuard. Il ne touche pas à l'accès
+WireGuard, IPsec et des Pass WAN → DMZ, WireGuard ou IPsec. Il ne touche pas à l'accès
 d'administration du pare-feu (GUI, SSH).
 
 Clé API : ~/.config/opnsense/apikey.txt (lignes key=… et secret=…, hors repo).
@@ -26,6 +26,7 @@ ALIAS = {
 # opt2 = INVITES (VLAN 40 sur vtnet1, 10.10.40.1/24) : Internet seulement.
 # wireguard = groupe des tunnels WireGuard (instance teletravail, wg0, 10.10.99.0/24),
 # voir tools/opnsense_wireguard.py.
+# enc0 = interface IPsec (tunnel vers fw-debian, voir tools/opnsense_ipsec.py).
 RULES = [
     # --- DMZ ---
     dict(sequence=500, interface="opt1", action="pass", protocol="TCP/UDP",
@@ -86,6 +87,25 @@ RULES = [
     dict(sequence=810, interface="wireguard", action="block", protocol="any",
          source_net="any", destination_net="any", log="1",
          description="TELETRAVAIL: interdit ailleurs"),
+    # --- IPsec site à site avec fw-debian (site B), voir tools/opnsense_ipsec.py ---
+    # OPNsense ajoute des règles automatiques équivalentes ; celles-ci les rendent explicites
+    # et limitées au pair, comme sur fw-debian.
+    dict(sequence=630, interface="wan", action="pass", protocol="UDP",
+         source_net="192.168.122.120/32", destination_net="wanip", destination_port="500",
+         description="IPsec: IKE depuis le site B"),
+    dict(sequence=631, interface="wan", action="pass", protocol="UDP",
+         source_net="192.168.122.120/32", destination_net="wanip", destination_port="4500",
+         description="IPsec: IKE NAT-T depuis le site B"),
+    dict(sequence=632, interface="wan", action="pass", protocol="ESP",
+         source_net="192.168.122.120/32", destination_net="wanip",
+         description="IPsec: ESP depuis le site B"),
+    # enc0 = trafic déchiffré. Le LAN du site A ouvre vers le site B par sa règle par défaut.
+    dict(sequence=900, interface="enc0", action="pass", protocol="any",
+         source_net="10.10.20.0/24", destination_net="lan",
+         description="SITE B: accès au LAN"),
+    dict(sequence=910, interface="enc0", action="block", protocol="any",
+         source_net="any", destination_net="any", log="1",
+         description="SITE B: interdit ailleurs"),
 ]
 
 DEFAULTS = dict(enabled="1", quick="1", direction="in", ipprotocol="inet",

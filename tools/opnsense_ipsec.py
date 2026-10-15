@@ -20,7 +20,17 @@ LOCAL = dict(name="site-a", addr="192.168.122.119", ts="10.10.10.0/24")
 # Clé publique affichée par le rôle ipsec_site (tâche « Show public key »).
 # None : premier passage, seule la paire du site A est créée et sa clé publique affichée.
 REMOTE = dict(name="site-b", addr="192.168.122.120", ts="10.10.20.0/24",
-              pubkey=None)
+              pubkey="""-----BEGIN PUBLIC KEY-----
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAwJUydvAhjGBPCNT7JrL8
+efTZOXf7KGv6n1p8LmfUZ/ftJ15CeaYjYI8yTca098mR6i/8kB1g3wHkVAFPrWdf
+vh4q5Fx5vVsdUBCYMdfRV0qjn2nA/qM6jYstN1ep23X93whSomJXWgCELmxauy7B
+L5+ZzZGTAszFZOwO2Y+V3RQxdLBcGzhK0F4SN6ZB5Ry4WQrQNC1O6IXQ2XQLpSSg
+Hq/FzkOR80GfNKKeUYbZbLMuwW57fBdYA8TPnanaCU2pJeuHZwVPDVu/5fYaFSx9
+IA4Cls75eql7/nZRVBSkPj0xR8TWb6Z09hAHzCqd8nRY10UUuLOM8rMYrmuIMued
+L0JAJbrWinlSC9aNuUXzSVJ636fcozGMpLp0fD5kaq7jVgoMNkJLpM0AbXOyx8Jl
+n0yXdCxqKF167gpy9dp/AbqWZShVRj7f2U3nhIoEguQlxZLJ/mQRXmfsRXHSJQsd
+va3tdTz4TNUE6/+EvHHiJcwdu7msM2Hhk3Rn5+iVrmSDAgMBAAE=
+-----END PUBLIC KEY-----""")
 
 # Mêmes valeurs que dans le rôle ipsec_site (defaults), sinon NO_PROPOSAL_CHOSEN.
 IKE_PROPOSALS = "aes256gcm16-sha256-ecp256"
@@ -53,7 +63,8 @@ def upsert_key_pair(name, pubkey, dry):
 
 def upsert_child_object(kind, conn_uuid, item, dry):
     """local, remote ou child de la connexion (un seul de chaque), retrouvé par sa connexion."""
-    uuid = find(f"ipsec/connections/search_{kind}", "connection", DESCRIPTION) if conn_uuid else None
+    # La colonne connection contient l'UUID de la connexion (sa description est dans %connection).
+    uuid = find(f"ipsec/connections/search_{kind}", "connection", conn_uuid) if conn_uuid else None
     print(f"{'mise à jour' if uuid else 'création  '} {kind}")
     if dry:
         return
