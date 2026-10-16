@@ -1,0 +1,104 @@
+# Modèle commun aux deux pare-feu du lab (OPNsense et fw-debian), importé par
+# tools/zabbix_firewalls.py. Mêmes clés des deux côtés, commandes propres à chaque système :
+# UserParameters de tools/opnsense_zabbix_agent.py (OPNsense) et de host_vars/fw-debian.yml.
+# Agent actif seulement : le serveur Zabbix (conteneur Docker) ne peut pas ouvrir de
+# connexion vers le WAN du lab, libvirt la refuse (voir docs/pare-feu.md).
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: ceb9a19e12b44ec49456feccbd761f51
+      name: Templates/Homelab
+  templates:
+    - uuid: 77eede73cad94f0c93cd880ac56cbb8c
+      template: 'Pare-feu by Zabbix agent active'
+      name: 'Pare-feu by Zabbix agent active'
+      description: 'États suivis, règles chargées, tunnels IPsec et WireGuard. Voir docs/pare-feu.md.'
+      groups:
+        - name: Templates/Homelab
+      items:
+        - uuid: 93fa791d57604a1aa312f1dbc752ccf2
+          name: 'États suivis'
+          type: ZABBIX_ACTIVE
+          key: fw.states.count
+          delay: 1m
+          description: 'pf : pfctl -si (current entries). nftables : conntrack (nf_conntrack_count).'
+          tags:
+            - tag: component
+              value: firewall
+          triggers:
+            - uuid: f0b6d4becfef4a0cbf7d314842a7c66e
+              expression: 'nodata(/Pare-feu by Zabbix agent active/fw.states.count,5m)=1'
+              name: 'Pare-feu : plus de données depuis 5 minutes'
+              priority: HIGH
+              description: 'Agent arrêté, pare-feu injoignable ou serveur Zabbix injoignable depuis le pare-feu.'
+        - uuid: a85c390591974a7992803ca2da3ba375
+          name: 'États suivis, limite'
+          type: ZABBIX_ACTIVE
+          key: fw.states.limit
+          delay: 1h
+          tags:
+            - tag: component
+              value: firewall
+        - uuid: c4130d4b82f142fc9ceec9a957e246a8
+          name: 'États suivis, utilisation'
+          type: CALCULATED
+          key: fw.states.util
+          delay: 1m
+          value_type: FLOAT
+          units: '%'
+          params: 'last(//fw.states.count)*100/last(//fw.states.limit)'
+          tags:
+            - tag: component
+              value: firewall
+          triggers:
+            - uuid: 458df208057e4c0ab5fec5450b159a14
+              expression: 'min(/Pare-feu by Zabbix agent active/fw.states.util,5m)>{$FW.STATES.UTIL.MAX}'
+              name: 'Pare-feu : table des états remplie à plus de {$FW.STATES.UTIL.MAX} %'
+              priority: AVERAGE
+              description: 'Au-delà de la limite, les nouvelles connexions sont refusées.'
+        - uuid: aba590b62b49433ca0a48478b695f60e
+          name: 'Règles chargées'
+          type: ZABBIX_ACTIVE
+          key: fw.rules.count
+          delay: 5m
+          description: 'pf : pfctl -sr (règles automatiques comprises). nftables : lignes avec un handle, hors tables et chaînes. Les deux nombres ne se comparent pas entre eux, seulement dans le temps.'
+          tags:
+            - tag: component
+              value: firewall
+          triggers:
+            - uuid: 0cc6706c96fe4574824aa0dd20a52ff7
+              expression: 'change(/Pare-feu by Zabbix agent active/fw.rules.count)<>0'
+              name: 'Pare-feu : règles modifiées'
+              priority: INFO
+              description: 'Le nombre de règles chargées a changé. Attendu après un déploiement, suspect sinon.'
+              manual_close: 'YES'
+        - uuid: 9efe5659affe4fde8481fae375f03aad
+          name: 'IPsec : tunnels installés (CHILD_SA)'
+          type: ZABBIX_ACTIVE
+          key: fw.ipsec.sa
+          delay: 1m
+          description: 'swanctl --list-sas, lignes INSTALLED.'
+          tags:
+            - tag: component
+              value: vpn
+          triggers:
+            - uuid: 6bb077068b874b45aea2cc249c41cb62
+              expression: 'max(/Pare-feu by Zabbix agent active/fw.ipsec.sa,5m)<{$FW.IPSEC.SA.MIN}'
+              name: 'Pare-feu : tunnel IPsec site à site tombé'
+              priority: AVERAGE
+              description: 'Moins de {$FW.IPSEC.SA.MIN} CHILD_SA installée depuis 5 minutes : les deux LAN ne se joignent plus.'
+        - uuid: 314905ca8b604c038950826bfd11c370
+          name: 'WireGuard : pairs actifs'
+          type: ZABBIX_ACTIVE
+          key: fw.wg.peers
+          delay: 1m
+          description: 'Pairs avec un handshake de moins de 3 minutes. Information seulement : un télétravailleur déconnecté n''est pas une panne.'
+          tags:
+            - tag: component
+              value: vpn
+      macros:
+        - macro: '{$FW.IPSEC.SA.MIN}'
+          value: '1'
+          description: 'CHILD_SA attendues (1 : le tunnel site à site).'
+        - macro: '{$FW.STATES.UTIL.MAX}'
+          value: '80'

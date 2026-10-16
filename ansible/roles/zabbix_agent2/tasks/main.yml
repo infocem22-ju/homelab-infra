@@ -37,6 +37,43 @@
     dest: /etc/zabbix/zabbix_agent2.conf
     mode: "0644"
 
+# Inclus par Include=/etc/zabbix/zabbix_agent2.d/*.conf ; supprimé si la liste est vide.
+- name: Deploy UserParameters
+  ansible.builtin.copy:
+    dest: /etc/zabbix/zabbix_agent2.d/homelab.conf
+    content: |
+      # Ansible managed (rôle zabbix_agent2, zbx_userparameters)
+      {% for p in zbx_userparameters %}
+      UserParameter={{ p.key }},{{ p.command }}
+      {% endfor %}
+    mode: "0644"
+  when: zbx_userparameters | length > 0
+
+- name: Remove UserParameters
+  ansible.builtin.file:
+    path: /etc/zabbix/zabbix_agent2.d/homelab.conf
+    state: absent
+  when: zbx_userparameters | length == 0
+
+# Commandes exactes, arguments compris : l'agent ne peut rien lancer d'autre en root.
+- name: Allow agent commands as root
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/zabbix-agent
+    content: |
+      # Ansible managed (rôle zabbix_agent2, zbx_sudo_commands)
+      {% for c in zbx_sudo_commands %}
+      zabbix ALL=(root) NOPASSWD: {{ c }}
+      {% endfor %}
+    mode: "0440"
+    validate: visudo -cf %s
+  when: zbx_sudo_commands | length > 0
+
+- name: Remove agent sudoers
+  ansible.builtin.file:
+    path: /etc/sudoers.d/zabbix-agent
+    state: absent
+  when: zbx_sudo_commands | length == 0
+
 - name: Restart zabbix_agent2 (no systemd)
   ansible.builtin.shell: |
     set -e

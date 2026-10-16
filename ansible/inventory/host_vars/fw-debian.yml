@@ -149,3 +149,24 @@ ipsec_site_peers:
       zzIffW2FiQ5aVBJmou5xsYTiK4/S9UUJ5QKvCqDiBioS/xm/9RpsT/tffRRcSDI0
       gb+fySC4rgFfwlqTdUAZi8EsA5l/0lUyAznaofpXfcqFAgMBAAE=
       -----END PUBLIC KEY-----
+
+# Supervision du pare-feu (modèle Zabbix « Pare-feu by Zabbix agent active »,
+# zabbix/templates/pare-feu.yaml) : mêmes clés que sur OPNsense (tools/opnsense_zabbix_agent.py),
+# commandes propres à Linux. Le compte zabbix ne lit en root que ces trois commandes.
+zbx_sudo_commands:
+  - /usr/sbin/nft -a list ruleset
+  - /usr/sbin/swanctl --list-sas
+  - /usr/bin/wg show all latest-handshakes
+zbx_userparameters:
+  - key: fw.states.count
+    command: cat /proc/sys/net/netfilter/nf_conntrack_count
+  - key: fw.states.limit
+    command: cat /proc/sys/net/netfilter/nf_conntrack_max
+  # Règles chargées, sans les lignes de table et de chaîne (qui ont aussi un handle).
+  - key: fw.rules.count
+    command: sudo -n /usr/sbin/nft -a list ruleset | grep '# handle' | grep -c -v -E '^\s*(table|chain) '
+  - key: fw.ipsec.sa
+    command: sudo -n /usr/sbin/swanctl --list-sas 2>/dev/null | grep -c INSTALLED || true
+  # Pairs WireGuard vus dans les 3 dernières minutes (handshake récent).
+  - key: fw.wg.peers
+    command: sudo -n /usr/bin/wg show all latest-handshakes | awk -v now=$(date +%s) '$3 > 0 && now - $3 < 180 {n++} END {print n+0}'
