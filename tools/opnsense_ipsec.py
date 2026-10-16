@@ -101,11 +101,13 @@ def main(dry):
         auth="pubkey", id=LOCAL["addr"], pubkeys=local_key or ""), dry)
     upsert_child_object("remote", conn_uuid, dict(
         auth="pubkey", id=REMOTE["addr"], pubkeys=remote_key or ""), dry)
-    # OPNsense monte le tunnel dès le démarrage (start) ; fw-debian attend (trap).
+    # OPNsense est le seul à monter le tunnel ; fw-debian attend (trap). Il le remonte au
+    # démarrage (start), après une panne détectée (dpd_action) et après un DELETE du pair,
+    # par exemple un redémarrage propre de strongSwan sur fw-debian (close_action, 16/10).
     upsert_child_object("child", conn_uuid, dict(
         description=f"{LOCAL['ts']} <-> {REMOTE['ts']}", mode="tunnel",
         local_ts=LOCAL["ts"], remote_ts=REMOTE["ts"], esp_proposals=ESP_PROPOSALS,
-        start_action="trap|start", dpd_action="start"), dry)
+        start_action="trap|start", dpd_action="start", close_action="start"), dry)
     if dry:
         return
     check(api("ipsec/connections/toggle/1", {}), "activation d'IPsec")

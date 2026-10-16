@@ -35,7 +35,8 @@ zabbix_export:
           name: 'États suivis, limite'
           type: ZABBIX_ACTIVE
           key: fw.states.limit
-          delay: 1h
+          # 10 min et pas 1 h : un élément non supporté n'est revérifié qu'à sa fréquence.
+          delay: 10m
           tags:
             - tag: component
               value: firewall
