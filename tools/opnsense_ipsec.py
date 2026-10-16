@@ -87,7 +87,10 @@ def main(dry):
     if not dry:
         conn = dict(enabled="1", description=DESCRIPTION, version="2",
                     proposals=IKE_PROPOSALS, local_addrs=LOCAL["addr"],
-                    remote_addrs=REMOTE["addr"], dpd_delay="30")
+                    remote_addrs=REMOTE["addr"], dpd_delay="30",
+                    # Essais sans fin : sinon, un pair éteint au démarrage d'OPNsense fait
+                    # abandonner le tunnel après un seul essai (constaté le 16/10 par Zabbix).
+                    keyingtries="0")
         path = (f"ipsec/connections/set_connection/{conn_uuid}" if conn_uuid
                 else "ipsec/connections/add_connection")
         result = api(path, {"connection": conn})
