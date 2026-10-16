@@ -186,6 +186,6 @@ Secrets GitHub requis : `AWX_HOST` (`http://192.168.122.148:30080`) et `AWX_TOKE
 - [x] Job Templates AWX pour les playbooks principaux (bootstrap, shutdown) — 27/08/2026
 - [x] CI/CD via AWX (GitHub Actions ne fait plus que déclencher le Job Template) — 25/09/2026
 - [ ] Déploiement du site Hugo sur les VMs lab (build dans l'EE) au lieu de demo-node-1
-- [ ] VM pare-feu (OPNsense vs Debian + nftables) devant les VMs lab
+- [x] VM pare-feu (OPNsense vs Debian + nftables) devant les VMs lab — 16/10/2026, voir `docs/pare-feu.md`
 - [ ] Diagnostic système via Zabbix : méthodologie incident
 - [ ] ~~Stabilisation RAG Ollama~~ — abandonné, la partie IA est déplacée vers un projet perso non publié
