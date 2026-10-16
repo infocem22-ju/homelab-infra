@@ -21,6 +21,53 @@ On monte deux solutions l'une après l'autre pour les comparer :
 | Ce qu'on retrouve | Très présent en PME | Cohérent avec le reste du lab (tout en code) |
 | À construire | Peu de choses | NAT, DHCP/DNS (dnsmasq), logs |
 
+## Bilan (16/10/2026)
+
+Les quatre objectifs sont atteints, sur deux sites qui tournent côte à côte et sont reliés entre eux :
+
+```
+                hôte 192.168.122.1 / AWX .148 / Zabbix
+                         │ vmbr0 (WAN du lab)
+        ┌────────────────┴──────── IPsec ───────┐
+   OPNsense .119 (site A)                fw-debian .120 (site B)
+   ├─ LAN 10.10.10.0/24                  ├─ LAN 10.10.20.0/24
+   ├─ invités VLAN 40, 10.10.40.0/24     ├─ invités VLAN 40, 10.10.41.0/24
+   ├─ DMZ 10.10.30.0/24 (site publié)    ├─ site publié par redirection
+   └─ WireGuard 10.10.99.0/24            └─ WireGuard 10.10.98.0/24
+```
+
+| Fonction | OPNsense (site A) | `fw-debian` (site B) |
+|---|---|---|
+| Filtrage, NAT sortant, redirection | oui | oui |
+| DHCP et DNS du LAN | Dnsmasq intégré | rôle `dnsmasq_lan` |
+| VLAN invités (Internet seulement) | oui | oui |
+| DMZ | oui | non (pas de quatrième réseau) |
+| WireGuard (télétravail) | API | rôle `wireguard_server` |
+| IPsec site à site | API | rôle `ipsec_site` |
+| Supervision Zabbix | agent, modèle commun | agent, modèle commun |
+| Où vit la configuration | dans l'appliance, en partie reproduite par les scripts `tools/opnsense_*.py` | entièrement dans le repo, déployée par AWX |
+
+**OPNsense : rapide à mettre en route, mais une partie de ce qu'il fait reste cachée.**
+- Installé le 28/09, il servait le DHCP du LAN et faisait le NAT vers Internet dès la session suivante (29/09). Dnsmasq, WireGuard, IPsec et l'agent Zabbix sont intégrés ou s'ajoutent par un plugin.
+- L'API a fini par couvrir les règles, WireGuard, IPsec et l'agent, avec des scripts idempotents. Restent à la main : l'installation, l'affectation des interfaces, les VLAN, les plugins et les privilèges de la clé API. Et il n'y a pas de retour arrière : l'API des règles n'a pas de savepoint (`404`).
+- Plusieurs pannes venaient de comportements implicites : le `reply-to` sur les règles WAN (29/09), « Block private networks » qui passe avant les règles (28/09), un masque `/32` proposé par défaut (09/10), des règles automatiques pour IPsec, et des réglages de reprise du tunnel à découvrir (16/10). Ils sont pratiques quand on les connaît, mais on ne les voit pas dans les règles qu'on écrit.
+
+**Debian + nftables : tout est écrit, donc tout est lisible, mais tout est à construire.**
+- La configuration complète est dans le repo, déployée par AWX, idempotente et protégée par un retour arrière automatique si Ansible ne peut plus se connecter. Un rôle rejoué remet en place ce qui a dérivé (règles chargées, routage).
+- En contrepartie, chaque fonction est à monter : routage IP, NAT, DHCP/DNS, l'exception au NAT pour IPsec, et la double étape traduction puis filtrage d'une redirection. Les erreurs sont aussi les nôtres : `ip_forward` remis à 0 sans que le rôle le voie (09/10), une redirection de port qui visait toute adresse (15/10).
+- Le moindre privilège y est plus facile : un `sudoers` de trois commandes pour l'agent Zabbix, contre le root complet du plugin d'OPNsense.
+
+**Ce qui revient aux deux.** Les mêmes notions décident de tout : états, ordre des règles, NAT avant ou après le filtrage, routes de retour. Les pannes les plus longues ne venaient d'aucun des deux pare-feu, mais de l'environnement : le NAT de libvirt qui masquait les VMs du WAN (13/10), le bridge Proxmox passé en « VLAN aware » à chaud (12/10), et la virtualisation imbriquée sous pression mémoire (09/10 et 13/10).
+
+**Ce que je recommanderais à une PME.**
+- **OPNsense en pare-feu périmétrique** quand il n'y a pas d'équipe qui travaille en code : l'interface, la documentation et les plugins couvrent les besoins courants (VPN, DMZ, invités). À condition de garder la configuration sous contrôle : sauvegarde de `config.xml`, et scripts API pour ce qui change souvent.
+- **Debian + nftables** quand l'infrastructure est déjà gérée en code et revue comme du code, pour un routeur au besoin précis, et surtout pour les **pare-feu d'hôtes** (modèle de `lab-vm-2`), où une appliance n'a pas sa place.
+- Les deux se combinent, comme dans ce lab : appliance en bordure, règles d'hôte versionnées derrière. Et une supervision commune, qui juge les deux sur les mêmes indicateurs.
+
+**Limites du lab.** Le « WAN » est le réseau NAT de libvirt, pas Internet. Tout tourne sur un seul poste, sans haute disponibilité (CARP, `conntrackd`). IPv6 n'a pas été traité. Les journaux de refus restent sur chaque pare-feu.
+
+**Pistes laissées ouvertes** : passer les règles d'OPNsense en Ansible (`tools/opnsense_rules.py` en est un premier pas), centraliser les journaux de refus (syslog), et administrer par WireGuard plutôt qu'en faisant confiance à l'hôte `192.168.122.1` (approche « zéro confiance »).
+
 ## État de départ (28/09/2026)
 
 | Composant | Adresse | État |
@@ -365,6 +412,20 @@ Points notés au démarrage :
   - hors tunnel depuis le site B : DMZ (`10.10.30.101`) et invités du site A (`10.10.40.1`) fermés, compteurs de la SA inchangés
   - sites publiés des deux côtés toujours en `200`, la redirection de `fw-debian` comprise
   - `swanctl --list-sas` sur `fw-debian` : compteurs `in` et `out` qui montent pendant les tests. Côté OPNsense, `ipsec/sessions/search_phase1` : `connected`, `public key` des deux côtés. `search_phase2` renvoie une liste vide en GET : il faut un POST avec l'`id` de la phase 1 (`{"id": "<uuid de la connexion>"}`). On y voit alors la CHILD_SA `INSTALLED`, avec les mêmes compteurs que sur `fw-debian`, inversés
+- **Comparaison OPNsense / nftables sur l'IPsec** (complétée le 16/10 avec la supervision et les corrections du tunnel) :
+
+  | | OPNsense (site A) | `fw-debian` (site B) |
+  |---|---|---|
+  | Moteur | strongSwan (swanctl) intégré, connexions de l'interface « nouvelle génération » | strongSwan 5.9 (`charon-systemd` + `swanctl`), paquets Debian |
+  | Configuration | API, `tools/opnsense_ipsec.py` : paires de clés, connexion, local, remote, child (cinq objets liés par UUID) | rôle `ipsec_site`, un fichier `swanctl.conf` généré depuis `host_vars` |
+  | Clé privée | générée par OPNsense, passe en mémoire par le script à la création | générée sur la VM (`openssl genpkey`), ne la quitte jamais |
+  | Filtrage du tunnel | interface `enc0`, règles 900/910, plus des règles WAN automatiques pour IKE et ESP (630–632 les rendent explicites) | liste `ipsec` de `host_firewall` : IKE/ESP du pair, `meta ipsec exists` pour le transit, aucune règle automatique |
+  | NAT | rien à faire : le paquet est chiffré avant le NAT sortant de `pf` | exception explicite avant le `masquerade`, sinon la politique IPsec ne correspond plus |
+  | Reprise du tunnel | réglages à trouver : `keyingtries 0` et `close_action start` (deux pannes vues par Zabbix) | `trap`, le pair qui initie fait le reste |
+  | État du tunnel | `ipsec/sessions/search_phase1`, `search_phase2` en POST avec l'`id` de la phase 1, ou Status | `swanctl --list-sas` |
+  | Supervision | `fw.ipsec.sa` par l'agent, avec `sudoRoot` | `fw.ipsec.sa` par l'agent, `sudoers` limité à `swanctl --list-sas` |
+
+  Même moteur des deux côtés, donc mêmes propositions et même vocabulaire (CHILD_SA, `trap`, DPD), ce qui a rendu la négociation simple : la phase 1 est passée au premier essai. Les différences sont autour du moteur. OPNsense ajoute des choses de lui-même (règles WAN, pas de NAT à exclure), alors que sur Debian, tout doit être écrit, et se lit dans le repo.
 - `lab-crash-1` reste sur le LAN du site A pour l'instant. Pour la remettre en invités du site B : `lab-crash-net` avec `invites-b`.
 
 ### 16/10/2026
@@ -391,8 +452,8 @@ Points notés au démarrage :
 
 ### Prochaine session
 
-- Tableau comparatif OPNsense / nftables pour l'IPsec (comme pour les invités et WireGuard), puis bilan final de la comparaison
-- Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
+- **Sujet pare-feu clos le 16/10/2026** (voir Bilan). Nouveau sujet à choisir pour la prochaine session (prévue le 03/11).
+- Pistes restées ouvertes, sans urgence, listées à la fin du Bilan.
 
 ## Décisions
 
