@@ -45,6 +45,7 @@ Objectif : pratiquer l'administration Linux et l'automatisation d'infrastructure
 - **Ansible** : playbooks idempotents, rôles, `group_vars`
 - **Playbook master** `provision_and_bootstrap.yml` : chaînage complet Proxmox → `wait_for_connection` → bootstrap → déploiement Zabbix agent
 - **Zabbix** : auto-register des agents, inventory dynamique avec filtre `groupids`, dashboards
+- **Supervision des pare-feu** : modèle commun `zabbix/templates/pare-feu.yaml` (états, règles, IPsec, WireGuard) pour OPNsense et `fw-debian`, importé par `tools/zabbix_firewalls.py` (voir `docs/pare-feu.md`)
 - **Podman** : containers de test + site statique Hugo déployé via Ansible
 - **CI/CD** : push sur `ansible/` → GitHub Actions (runner self-hosted) → Job Template AWX `lab-site`
 

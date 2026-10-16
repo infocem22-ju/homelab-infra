@@ -10,7 +10,7 @@ Placer les VMs du lab derrière un pare-feu, comme sur un réseau de PME :
 - WAN sur le réseau actuel `192.168.122.0/24` (réseau `default` de libvirt)
 - LAN sur un bridge interne dédié à Proxmox (`vmbr1`)
 - Filtrage, NAT sortant, DHCP/DNS côté LAN
-- Supervision du pare-feu dans Zabbix (SNMP)
+- Supervision du pare-feu dans Zabbix (SNMP prévu au départ, fait finalement par l'agent Zabbix : voir 16/10)
 
 On monte deux solutions l'une après l'autre pour les comparer :
 
@@ -367,9 +367,31 @@ Points notés au démarrage :
   - `swanctl --list-sas` sur `fw-debian` : compteurs `in` et `out` qui montent pendant les tests. Côté OPNsense, `ipsec/sessions/search_phase1` : `connected`, `public key` des deux côtés. `search_phase2` renvoie une liste vide en GET : il faut un POST avec l'`id` de la phase 1 (`{"id": "<uuid de la connexion>"}`). On y voit alors la CHILD_SA `INSTALLED`, avec les mêmes compteurs que sur `fw-debian`, inversés
 - `lab-crash-1` reste sur le LAN du site A pour l'instant. Pour la remettre en invités du site B : `lab-crash-net` avec `invites-b`.
 
+### 16/10/2026
+
+- Stack relancée (Zabbix, Proxmox, AWX), `fw-debian` et `lab-vm-3` démarrées par `lab-vms-provision` (job 259), runner GitHub relancé.
+- **SNMP sur OPNsense essayé, puis retiré.** Plugin `os-net-snmp` installé à la main (la clé API n'a pas les droits sur le firmware), configuré par l'API en SNMPv3 authPriv seul, avec une règle WAN UDP 161 depuis l'hôte, et l'hôte `opnsense` créé dans Zabbix avec le modèle « OPNsense by SNMP ». Le v3 répondait depuis l'hôte et le v2c (`public`) non. Mais deux obstacles (voir Problèmes rencontrés) : le modèle lit pf dans `BEGEMOT-PF-MIB`, que Net-SNMP n'a pas, et le serveur Zabbix, dans un conteneur Docker, ne peut pas ouvrir de connexion vers le WAN du lab. Service désactivé, utilisateur et règle supprimés, mots de passe effacés.
+- **Supervision des deux pare-feu par l'agent Zabbix, avec un modèle commun** :
+  - modèle `zabbix/templates/pare-feu.yaml`, « Pare-feu by Zabbix agent active », importé par `tools/zabbix_firewalls.py`. Mêmes clés sur les deux pare-feu, chacune avec sa commande :
+
+    | Clé | OPNsense (pf) | `fw-debian` (nftables) |
+    |---|---|---|
+    | `fw.states.count` / `fw.states.limit` | `pfctl -si` / `pfctl -sm` | `nf_conntrack_count` / `nf_conntrack_max` (`/proc`, sans root) |
+    | `fw.rules.count` | `pfctl -sr \| wc -l` (règles automatiques comprises) | lignes à `handle` de `nft -a list ruleset`, hors tables et chaînes |
+    | `fw.ipsec.sa` | `swanctl --list-sas`, lignes `INSTALLED` | idem |
+    | `fw.wg.peers` | `wg show all latest-handshakes`, handshake de moins de 3 min | idem |
+
+    Déclencheurs : plus de données depuis 5 min (haute), table des états à plus de 80 % (moyenne), tunnel IPsec tombé depuis 5 min (moyenne), règles modifiées (information, fermeture manuelle). `fw.states.util` est calculé par Zabbix. Les nombres de règles ne se comparent pas entre les deux pare-feu, seulement dans le temps
+  - OPNsense : plugin `os-zabbix-agent` installé à la main, configuré par `tools/opnsense_zabbix_agent.py`. Agent actif vers `192.168.50.6` (comme les VMs du lab), mode passif limité à `127.0.0.1`, pas de commandes à distance, UserParameters sans paramètres, et `sudoRoot` pour `pfctl` et `swanctl`. Hôte `opnsense` en agent actif seul, sans interface, dans « Network Devices »
+  - `fw-debian` : rôle `zabbix_agent2` étendu (`zbx_userparameters`, `zbx_sudo_commands`), avec un `sudoers` limité aux trois commandes exactes et validé par `visudo`. Déployé par la CI (`lab-site`, job 261)
+- **Vérifié** : les cinq clés remontent sur les deux hôtes. Sur `fw-debian`, avec le compte `zabbix` (`zabbix_agent2 -t`) : 130 états, limite 65536, 34 règles. Un `sudo` hors liste est refusé (`a password is required`). OPNsense : 171 états, limite 200500, 122 règles.
+- **Premier constat de la supervision : tunnel IPsec tombé depuis le démarrage** (`fw.ipsec.sa = 0` des deux côtés). OPNsense avait démarré avant `fw-debian` et abandonné après un seul essai. Corrigé par `keyingtries = 0` (essais sans fin), et le tunnel est remonté dès le rechargement.
+- **Test de coupure** : strongSwan arrêté 7 min sur `fw-debian`. L'alerte « tunnel IPsec site à site tombé » s'est levée sur les deux hôtes au bout de 5 min. Mais le tunnel n'est pas revenu au redémarrage (voir Problèmes rencontrés), d'où `close_action = start`. Nouveau test (2 min d'arrêt) : tunnel remonté seul en **46 s**, sans trafic.
+- **Alerte « règles modifiées » sur OPNsense à 10:36** (122 → 123), à la suite du rechargement d'IPsec : pf régénère alors ses règles automatiques. Le déclencheur voit donc aussi ces règles-là, pas seulement celles qu'on écrit.
+
 ### Prochaine session
 
-- Supervision du tunnel dans Zabbix (état de la CHILD_SA sur `fw-debian`, par exemple `swanctl --list-sas` en élément d'agent)
+- Tableau comparatif OPNsense / nftables pour l'IPsec (comme pour les invités et WireGuard), puis bilan final de la comparaison
 - Plus tard, peut-être : passer les règles OPNsense en Ansible (le script `tools/opnsense_rules.py` en est un premier pas)
 
 ## Décisions
@@ -397,6 +419,10 @@ Points notés au démarrage :
 - **15/10/2026 — IPsec authentifié par clés publiques, pas par clé pré-partagée.** Une PSK est plus courante en PME, mais c'est un secret à garder hors d'un dépôt public et à recopier des deux côtés. Avec des clés publiques, c'est le même modèle que WireGuard : la clé privée ne quitte pas son pare-feu, et ce qui est versionné ne permet pas d'usurper un site.
 - **15/10/2026 — Tunnel en mode politique, LAN à LAN seulement.** Pas d'interface de tunnel routée (VTI) : les deux pare-feu n'ont qu'une paire de réseaux à relier, et les sélecteurs de trafic suffisent. Les invités, la DMZ et les réseaux WireGuard restent hors du tunnel. Côté nftables, le transit est réservé aux paquets déchiffrés, pour que le tunnel ne devienne pas une porte d'entrée sur le WAN.
 - **15/10/2026 — `lab-crash-1` sert de machine de test sur le LAN A, plutôt qu'une nouvelle VM.** La bascule passe par AWX (le token Proxmox n'est pas sur le poste) et ne change que le bridge et le tag : elle se défait en relançant le même Job Template.
+- **16/10/2026 — Supervision des pare-feu par l'agent Zabbix, pas par SNMP.** SNMP était prévu au départ, parce que c'est l'usage pour un équipement réseau. Mais le modèle de Zabbix pour OPNsense suppose `bsnmpd`, qui ne se règle ni dans l'interface ni par l'API, et Net-SNMP n'a pas la MIB pf. L'agent donne exactement ce qu'on veut suivre, avec la même méthode sur les deux pare-feu. Il marche en mode actif, ce qui contourne le blocage de libvirt, et il est piloté par l'API d'un côté et par Ansible de l'autre.
+- **16/10/2026 — Un modèle commun aux deux pare-feu, avec les mêmes clés.** Une alerte (tunnel tombé, table des états pleine) a le même nom et le même seuil sur les deux, ce qui rend la comparaison directe. Seule la commande derrière chaque clé change.
+- **16/10/2026 — Root pour l'agent d'OPNsense, au plus juste sur `fw-debian`.** `pfctl` et `swanctl` demandent root des deux côtés. Sur Debian, le `sudoers` n'autorise que trois commandes avec leurs arguments exacts. Sur OPNsense, le plugin n'a qu'un interrupteur (`sudoRoot`), avec des droits larges : un agent compromis vaudrait root. Garde-fous : pas de commandes à distance, UserParameters figés et sans paramètres, pas d'écoute réseau. C'est un écart notable entre les deux solutions.
+- **16/10/2026 — OPNsense seul initiateur du tunnel IPsec.** `fw-debian` reste en `trap`. OPNsense monte le tunnel au démarrage, après une panne détectée et après un `DELETE` du pair, avec des essais sans fin. Un seul initiateur évite deux négociations simultanées.
 
 ## Points ouverts
 
@@ -404,6 +430,13 @@ Points notés au démarrage :
 - **Accès d'AWX aux VMs du lab une fois derrière le pare-feu.** Le Job Template `lab-site` vise `lab-vm-1`/`lab-vm-2` en `192.168.122.101`/`.102` (`ansible/inventory/lab_vms_static.yml`), et `proxmox_provision_vms.yml` fixe leur IP et la passerelle `192.168.122.1` par cloud-init. En passant ces VMs sur `vmbr1`, AWX (`192.168.122.148`) ne les voit plus, et la CI/CD casse. Pistes : une route vers `10.10.10.0/24` via `192.168.122.119` sur AWX (et sur l'hôte) plus une règle WAN SSH depuis AWX, ou AWX lui-même derrière le pare-feu. À trancher avant de déplacer `lab-vm-1`/`lab-vm-2`. **Tranché le 29/09/2026 : route (voir Décisions).**
 
 ## Problèmes rencontrés
+
+- **Net-SNMP d'OPNsense sans les statistiques de pf (16/10/2026).** Avec le modèle « OPNsense by SNMP », Zabbix signalait `cannot retrieve OID: '.1.3.6.1.4.1.12325.1.200.1.3.1.0'`. Depuis l'hôte, en SNMPv3 : `No Such Object available on this agent at this OID` pour toute la branche `.1.3.6.1.4.1.12325` (`BEGEMOT-PF-MIB`), alors que `IF-MIB` répondait. Cette MIB vient de `bsnmpd`, le démon SNMP de FreeBSD, pas de Net-SNMP. Résolu en passant par l'agent Zabbix (voir Décisions).
+- **Le serveur Zabbix ne joint pas le WAN du lab (16/10/2026).** `snmpget` passait depuis l'hôte, mais Zabbix restait en `timed out`. Le conteneur (`172.20.0.3`) sort vers `virbr0`, et le réseau NAT de libvirt n'y laisse entrer que des réponses : une nouvelle connexion venant d'une autre interface est refusée, et seul l'hôte y échappe. Non vérifié dans les règles (lecture de nftables impossible sans `sudo`). Sans conséquence jusqu'ici : tous les agents du lab sont actifs, et c'est encore le cas pour les pare-feu.
+- **Mots de passe SNMPv3 affichés dans une sortie de commande (16/10/2026).** Une commande `snmpget` mal découpée par zsh (variable non séparée en arguments) a fait afficher les mots de passe dans son message d'erreur. Ils ont été supprimés avec le reste de SNMP. À retenir : sous zsh, passer les options par un tableau sous bash, et masquer les secrets dans les sorties.
+- **Tunnel IPsec pas remonté quand `fw-debian` démarre après OPNsense (16/10/2026).** Vu par la supervision : `fw.ipsec.sa = 0` des deux côtés dès la première collecte. OPNsense avait essayé de monter le tunnel à son démarrage, contre un pair encore éteint, et avait abandonné après un seul essai (`keyingtries` vide = 1). `fw-debian`, en `trap`, attendait du trafic. Correction : `keyingtries = 0`.
+- **Tunnel IPsec pas remonté après un redémarrage propre de strongSwan sur `fw-debian` (16/10/2026).** À l'arrêt, `fw-debian` envoie un `DELETE` (`sending DELETE for IKE_SA site-a[1]`). Pour OPNsense, c'est une fermeture voulue et non une panne : `dpd_action` ne s'applique pas, et `close_action = none` ne fait rien, à part garder le piège (`routed`, mais pas `connected`). Correction : `close_action = start`. Après un arrêt de 2 min, le tunnel est remonté seul en 46 s. Au passage : l'horloge de `fw-debian` est en UTC, donc un `journalctl --since` en heure locale ne montre rien.
+- **Éléments de `fw-debian` en « Unknown metric » après le déploiement (16/10/2026).** Le modèle avait été lié avant que les UserParameters soient déployés. Un élément non supporté n'est revérifié qu'à sa propre fréquence, et « Execute now » refuse les éléments d'agent actif (`wrong item type`). `fw.states.limit`, relevé toutes les heures, serait resté en erreur jusqu'à une heure. Fréquence passée à 10 min.
 
 - **`lab-crash-1` sur le mauvais site après la bascule (15/10/2026).** Le premier `lab-crash-net` (job 234) n'enlevait que le tag de `net0`, en supposant la VM sur `vmbr1`. Elle était sur `vmbr2` depuis le 12/10 (Journal), et s'est donc retrouvée sur le LAN du site B. Symptômes : SSH d'AWX vers `10.10.10.50` en délai dépassé, aucune réponse dans tout `10.10.10.0/24` (balayage depuis `lab-vm-3` par le tunnel), puis `10.10.20.220 via 10.10.20.1` dans la console. Correction : le playbook fixe le bridge et le tag. À retenir : relire l'état réel (ou le dernier changement noté), pas seulement la première description de la VM.
 - **Proxmox répond 500 au démarrage d'une VM qui redémarre (15/10/2026).** Job 248 : `starting of VM 103 failed with exception: 500 Internal Server Error: failed to open PSS memory-stat from process - No such process`. La tâche « Démarrer la VM » suivait immédiatement un `state: restarted`, pendant que l'ancien processus QEMU disparaissait. La VM a bien redémarré. Correction : pas de démarrage juste après un redémarrage.
