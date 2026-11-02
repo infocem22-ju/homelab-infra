@@ -2,9 +2,11 @@
 
 Infrastructure de lab personnelle, construite from scratch et maintenue activement.
 
-Objectif : pratiquer l'administration Linux et l'automatisation d'infrastructure dans un environnement reproductible — provisioning de VMs, monitoring, CI/CD, déploiement de services.
+Objectif : pratiquer l'administration Linux, le réseau et l'automatisation d'infrastructure dans un environnement reproductible — provisioning de VMs, segmentation réseau, monitoring, CI/CD, déploiement de services, gestion d'incidents.
 
-**Stack :** Ansible · AWX · Proxmox VE · KVM · Podman · Docker Compose · Zabbix · GitHub Actions · Git
+**Stack :** Ansible · AWX · Proxmox VE · KVM · k3s · OPNsense · nftables · WireGuard · IPsec · Podman · Docker Compose · Zabbix · GitHub Actions · Git
+
+**Pour aller droit à l'essentiel :** [le rapport pare-feu](docs/pare-feu.md) (bilan, décisions, problèmes rencontrés) et [les procédures d'incident](procedures/README.md).
 
 ---
 
@@ -23,10 +25,21 @@ Objectif : pratiquer l'administration Linux et l'automatisation d'infrastructure
   │   ├─ Awx  192.168.122.148  (Debian 12, k3s + AWX Operator, UI :30080)
   │   │   └─ Job Templates exécutés dans l'EE homelab-ee (ghcr.io)
   │   │
-  │   └─ proxmox-lab  (Proxmox VE, virtualisation imbriquée)
-  │       ├─ lab-vm-1     192.168.122.101  (Debian 12, cloud-init)
-  │       ├─ lab-vm-2     192.168.122.102  (Debian 12, cloud-init)
-  │       └─ lab-crash-1  192.168.122.50   (VM de test incidents)
+  │   └─ proxmox-lab  192.168.122.106  (Proxmox VE, virtualisation imbriquée)
+  │       ├─ OPNsense   192.168.122.119  (pare-feu du site A)
+  │       │   ├─ LAN 10.10.10.0/24, invités VLAN 40 10.10.40.0/24
+  │       │   ├─ DMZ 10.10.30.0/24 : lab-vm-1 10.10.30.101 (site publié)
+  │       │   └─ WireGuard 10.10.99.0/24
+  │       │
+  │       ├─ fw-debian  192.168.122.120  (pare-feu nftables du site B)
+  │       │   ├─ LAN 10.10.20.0/24 : lab-vm-3 10.10.20.101 (site publié par redirection)
+  │       │   ├─ invités VLAN 40 10.10.41.0/24
+  │       │   └─ WireGuard 10.10.98.0/24
+  │       │
+  │       ├─ lab-vm-2     192.168.122.102  (côté WAN, poste de télétravail WireGuard)
+  │       └─ lab-crash-1  (VM de test incidents, branchée à la demande sur un LAN ou un réseau invités)
+  │
+  │       Sites A et B reliés par un tunnel IPsec site à site
   │
   ├─ Docker Compose : Zabbix 7.4 (server + PostgreSQL, web :8081)
   │   └─ supervision + inventaire dynamique → groupe lab_vms
@@ -38,11 +51,13 @@ Objectif : pratiquer l'administration Linux et l'automatisation d'infrastructure
 
 ---
 
-## Ce qui tourne (septembre 2026)
+## Ce qui est en place (octobre 2026)
 
 - **AWX** : déployé sur VM KVM dédiée (Debian 12 + k3s + AWX Operator) — orchestration Ansible via interface web, gestion centralisée des credentials, journalisation des jobs ; Job Templates et Execution Environment définis en code
 - **Proxmox VE** : templates Debian 12 cloud-init, provisioning via collection `community.proxmox`
-- **Ansible** : playbooks idempotents, rôles, `group_vars`
+- **Ansible** : 8 rôles et 17 playbooks idempotents, `group_vars`
+- **Réseau** : deux sites reliés en IPsec, l'un sur OPNsense, l'autre sur Debian + nftables, avec filtrage, NAT, DHCP/DNS, VLAN invités, DMZ sur le site A et WireGuard pour le télétravail (bilan et recommandation PME dans `docs/pare-feu.md`)
+- **Incidents** : procédures testées dans le lab (détection, diagnostic, résolution, prévention), VM `lab-crash-1` pour provoquer des pannes, problèmes réels et causes consignés dans `docs/pare-feu.md`
 - **Playbook master** `provision_and_bootstrap.yml` : chaînage complet Proxmox → `wait_for_connection` → bootstrap → déploiement Zabbix agent
 - **Zabbix** : auto-register des agents, inventory dynamique avec filtre `groupids`, dashboards
 - **Supervision des pare-feu** : modèle commun `zabbix/templates/pare-feu.yaml` (états, règles, IPsec, WireGuard) pour OPNsense et `fw-debian`, importé par `tools/zabbix_firewalls.py` (voir `docs/pare-feu.md`)
@@ -58,7 +73,8 @@ homelab-infra/
 ├── ansible.cfg
 ├── requirements.yml            # collections Ansible (community.zabbix, community.proxmox)
 ├── .github/workflows/
-│   └── ansible.yml             # déclenche le Job Template AWX lab-site
+│   ├── ansible.yml             # déclenche le Job Template AWX lab-site
+│   └── hello.yml               # contrôle du runner à chaque push sur master
 ├── ansible/
 │   ├── awx/
 │   │   └── job_templates.yml           # config AWX en code (awx.awx) : JT, EE, credential type
@@ -69,17 +85,25 @@ homelab-infra/
 │   │   ├── zabbix_inventory.yml        # inventaire dynamique Zabbix (versionné, lu par AWX)
 │   │   └── group_vars/
 │   ├── playbooks/
-│   │   ├── lab_site.yml                # pipeline CI/CD (trace, nginx, zabbix-agent2)
+│   │   ├── lab_site.yml                # pipeline CI/CD (trace, nginx, zabbix-agent2, réseau, VPN, pare-feu)
 │   │   ├── proxmox_provision_vms.yml
 │   │   └── provision_and_bootstrap.yml
-│   └── roles/                          # nginx_demo, zabbix_agent2
-├── zabbix/docker-compose.yml   # Zabbix 7.4 + PostgreSQL
+│   └── roles/                          # nginx_demo, zabbix_agent2, host_firewall, dnsmasq_lan, lan_vlans,
+│                                       # wireguard_server, wireguard_client, ipsec_site
+├── docs/pare-feu.md            # rapport pare-feu : bilan, journal, décisions, problèmes rencontrés
+├── zabbix/
+│   ├── docker-compose.yml      # Zabbix 7.4 + PostgreSQL
+│   └── templates/pare-feu.yaml # modèle commun aux deux pare-feu
 ├── ollama/                     # IA locale — déprécié, plus développé
-├── procedures/                 # procédures d'incident (disque plein, nginx down)
-├── tools/homelab-control.sh    # menu de démarrage/arrêt de la stack
+├── procedures/                 # procédures d'incident (disque plein, nginx down, service inaccessible)
+├── tools/
+│   ├── homelab-control.sh      # menu de démarrage/arrêt de la stack
+│   ├── opnsense_*.py           # configuration d'OPNsense par l'API (règles, WireGuard, IPsec, agent Zabbix)
+│   └── zabbix_firewalls.py     # import du modèle pare-feu dans Zabbix
 ├── bootstrap/
 │   ├── lab.sh                  # gestion containers Podman
-│   └── vm.sh                   # legacy KVM
+│   ├── vm.sh                   # legacy KVM
+│   └── libvirt-hooks/          # exception au NAT de libvirt pour les LAN du lab
 ├── homelab-site/               # site Hugo
 └── Notes.md
 ```
@@ -118,7 +142,7 @@ ansible-playbook ansible/playbooks/provision_and_bootstrap.yml
 # Tester la connectivité
 ansible -i ansible/inventory/zabbix_inventory.yml lab_vms -m ping
 
-# Déployer le site Hugo
+# Déployer la configuration du lab (normalement fait par la CI)
 ansible-playbook ansible/playbooks/lab_site.yml
 ```
 
@@ -172,7 +196,7 @@ Déclenché sur push dans `ansible/` ou manuellement (`workflow_dispatch`). Le r
 
 Pipeline :
 1. GitHub Actions lance le Job Template AWX `lab-site` (`POST /api/v2/job_templates/<id>/launch/`)
-2. AWX synchronise le projet Git (git seul, quelques secondes) et exécute `lab_site.yml` sur les VMs lab : trace de connexion, nginx, zabbix-agent2
+2. AWX synchronise le projet Git (git seul, quelques secondes) et exécute `lab_site.yml` sur les VMs lab : trace de connexion, nginx, zabbix-agent2, VLAN, DHCP/DNS, WireGuard, IPsec, pare-feu
 3. Le runner interroge le statut du job jusqu'à la fin ; en cas d'échec, les 50 dernières lignes du job AWX sont affichées dans le run GitHub
 
 Secrets GitHub requis : `AWX_HOST` (`http://192.168.122.148:30080`) et `AWX_TOKEN` (token OAuth AWX dédié, scope write).
@@ -188,4 +212,9 @@ Secrets GitHub requis : `AWX_HOST` (`http://192.168.122.148:30080`) et `AWX_TOKE
 - [ ] Déploiement du site Hugo sur les VMs lab (build dans l'EE) au lieu de demo-node-1
 - [x] VM pare-feu (OPNsense vs Debian + nftables) devant les VMs lab — 16/10/2026, voir `docs/pare-feu.md`
 - [ ] Diagnostic système via Zabbix : méthodologie incident
+- [ ] Kubernetes (k3s) et Grafana
 - [ ] ~~Stabilisation RAG Ollama~~ — abandonné, la partie IA est déplacée vers un projet perso non publié
+
+### Correctifs
+
+- [ ] Zabbix : l'auto-enregistrement peut réécrire l'interface d'un hôte avec `172.20.0.1` (passerelle Docker, NAT vers le serveur conteneurisé), ce qui casse `ansible_host` dans l'inventaire dynamique. Corrigé à la main sur `lab-crash-1`, `fw-debian` et `lab-vm-3` (`hostinterface.update`) ; cause toujours en place, à traiter durablement. Voir `docs/pare-feu.md`, incident du 06/10/2026
