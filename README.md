@@ -4,7 +4,7 @@ Infrastructure de lab personnelle, construite from scratch et maintenue activeme
 
 Objectif : pratiquer l'administration Linux, le réseau et l'automatisation d'infrastructure dans un environnement reproductible — provisioning de VMs, segmentation réseau, monitoring, CI/CD, déploiement de services, gestion d'incidents.
 
-**Stack :** Ansible · AWX · Proxmox VE · KVM · k3s · OPNsense · nftables · WireGuard · IPsec · Podman · Docker Compose · Zabbix · GitHub Actions · Git
+**Stack :** Terraform · Ansible · AWX · Proxmox VE · KVM · k3s · OPNsense · nftables · WireGuard · IPsec · Podman · Docker Compose · Zabbix · GitHub Actions · Git
 
 **Pour aller droit à l'essentiel :** [le rapport pare-feu](docs/pare-feu.md) (bilan, décisions, problèmes rencontrés) et [les procédures d'incident](procedures/README.md).
 
@@ -91,6 +91,8 @@ homelab-infra/
 │   └── roles/                          # nginx_demo, zabbix_agent2, host_firewall, dnsmasq_lan, lan_vlans,
 │                                       # wireguard_server, wireguard_client, ipsec_site
 ├── docs/pare-feu.md            # rapport pare-feu : bilan, journal, décisions, problèmes rencontrés
+├── docs/kubernetes.md          # rapport Kubernetes en cours : journal, décisions, problèmes rencontrés
+├── terraform/k3s/              # VM(s) du cluster k3s sur KVM/libvirt (provider dmacvicar/libvirt)
 ├── zabbix/
 │   ├── docker-compose.yml      # Zabbix 7.4 + PostgreSQL
 │   └── templates/pare-feu.yaml # modèle commun aux deux pare-feu
@@ -212,7 +214,7 @@ Secrets GitHub requis : `AWX_HOST` (`http://192.168.122.148:30080`) et `AWX_TOKE
 - [ ] Déploiement du site Hugo sur les VMs lab (build dans l'EE) au lieu de demo-node-1
 - [x] VM pare-feu (OPNsense vs Debian + nftables) devant les VMs lab — 16/10/2026, voir `docs/pare-feu.md`
 - [ ] Diagnostic système via Zabbix : méthodologie incident
-- [ ] Kubernetes (k3s) et Grafana
+- [ ] Kubernetes (k3s) et Grafana — en cours depuis le 03/11/2026, VM du cluster créée par Terraform, voir `docs/kubernetes.md`
 - [ ] ~~Stabilisation RAG Ollama~~ — abandonné, la partie IA est déplacée vers un projet perso non publié
 
 ### Correctifs

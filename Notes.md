@@ -100,6 +100,7 @@ Historique :
 ## En pause / plus tard
 
 - Grafana
+- Terraform : création des VMs du lab en code, Ansible gardant la configuration — compétence demandée dans les offres. Démarré le 03/11/2026 pour la VM k3s sur KVM/libvirt (`terraform/k3s/`, voir `docs/kubernetes.md`) ; reste à faire pour les VMs Proxmox
 - HashiCorp Vault
 - NixOS
 - Reverse DNS sur Raspberry Pi
