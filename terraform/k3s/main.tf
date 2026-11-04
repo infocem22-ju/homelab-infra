@@ -53,11 +53,32 @@ resource "libvirt_cloudinit_disk" "init" {
 resource "libvirt_volume" "cidata" {
   name = "${var.vm_name}-cidata.iso"
   pool = "images"
-
+  lifecycle {
+    ignore_changes = [create]
+  }
   create = {
     content = {
       url = libvirt_cloudinit_disk.init.path
     }
+  }
+}
+
+locals {
+  dhcp_host = "<host mac='${var.mac}' name='${var.vm_name}' ip='${var.ip}'/>"
+}
+
+# Réservation dans le réseau default, qui n'est pas géré par Terraform
+resource "terraform_data" "dhcp_reservation" {
+  input            = local.dhcp_host
+  triggers_replace = [local.dhcp_host]
+
+  provisioner "local-exec" {
+    command = "virsh -c qemu:///system net-update default add ip-dhcp-host \"${self.input}\" --live --config"
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "virsh -c qemu:///system net-update default delete ip-dhcp-host \"${self.input}\" --live --config"
   }
 }
 
@@ -69,6 +90,7 @@ resource "libvirt_domain" "k3s" {
   memory_unit = "MiB"
   running     = true
   autostart   = false
+  depends_on  = [terraform_data.dhcp_reservation]
 
   os = {
     type         = "hvm"
@@ -116,6 +138,7 @@ resource "libvirt_domain" "k3s" {
     interfaces = [
       {
         type   = "network"
+        mac    = { address = var.mac }
         model  = { type = "virtio" }
         source = { network = { network = "default" } }
       }

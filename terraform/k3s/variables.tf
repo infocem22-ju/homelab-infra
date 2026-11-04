@@ -28,3 +28,13 @@ variable "ssh_pubkey_path" {
   type    = string
   default = "~/.ssh/homelab_ansible_ed25519.pub"
 }
+variable "mac" {
+  type    = string
+  default = "52:54:00:6b:33:01"
+}
+
+variable "ip" {
+  description = "IP réservée dans le DHCP du réseau default"
+  type        = string
+  default     = "192.168.122.131"
+}
