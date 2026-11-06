@@ -72,10 +72,25 @@ Plan :
 - Après un redémarrage du poste, le `plan` voulait recréer l'ISO cloud-init et remplacer son volume, alors que je n'avais touché à rien : le provider génère l'ISO dans `/tmp`, un `tmpfs` vidé à chaque démarrage. Sans danger pour la VM, puisque cloud-init ne rejoue pas pour un `instance-id` déjà vu, mais c'est du bruit qui masquerait une vraie dérive, et un contrôle en CI par `plan -detailed-exitcode` échouerait à chaque redémarrage. `lifecycle { ignore_changes = [create] }` sur `libvirt_volume.cidata` supprime le remplacement du volume. Il reste la recréation du fichier local (voir Points ouverts).
 - Vérifié : bail `192.168.122.131` 11 s après le démarrage, SSH avec la clé Ansible, `terraform plan -detailed-exitcode` qui renvoie `0`.
 
+### 06/11/2026
+
+**Étape 1, suite — clé d'hôte SSH d'une VM recréée à la même IP**
+
+- Constat de départ : `ansible.cfg` contenait `host_key_checking = False`, pour tout l'inventaire.
+- Expérience, sans recréer la VM : un faux `known_hosts` associe `.131` à une autre clé. Trois essais de `ssh … hostname` :
+  - par défaut : refusé
+  - `StrictHostKeyChecking=accept-new` : refusé, car `accept-new` n'accepte que les machines inconnues, pas une clé qui a changé
+  - `StrictHostKeyChecking=no`, ce que fait Ansible avec `False` : gros avertissement, puis `k3s-vm-1` s'affiche, donc **la commande a tourné**. J'ai d'abord lu « refusé » à cause de l'avertissement. OpenSSH coupe seulement le mot de passe et le keyboard-interactive : une signature par clé est liée à la session et ne peut pas être rejouée chez le vrai serveur, alors qu'un mot de passe arriverait en clair chez l'attaquant.
+- Pourquoi c'est grave pour Ansible : la session est ouverte chez l'attaquant, et il reçoit tout ce que transportent les modules (`copy`, `template`, `become`, et plus tard le jeton k3s et le `kubeconfig`). En plus, Ansible n'affiche pas l'avertissement SSH d'une tâche réussie. Le playbook aurait l'air normal.
+- Choix (voir Décisions) : `host_key_checking = True` et `StrictHostKeyChecking=accept-new` dans `ssh_args`. Le `ssh-keygen -R` est fait par Terraform, qui sait au moment de la destruction que la clé devient obsolète, alors qu'Ansible ne le découvrirait qu'à la connexion suivante.
+- La clé d'hôte est générée par cloud-init sur le disque. Le nettoyage suit donc le disque, pas la VM ni la réservation DHCP : celle-ci n'est pas détruite par un `-replace` du disque, et le `-replace` du 04/11 n'aurait pas lancé le `ssh-keygen -R`. Un `terraform_data.ssh_host_key` dédié, avec `triggers_replace = [libvirt_volume.disk.id]` et un provisioner de destruction sur `self.input`. Vérifié : `ssh-keygen -R` renvoie `0` même si l'hôte est absent.
+- Premier essai de `-replace=libvirt_volume.disk` : le `plan` remplaçait le disque et `ssh_host_key`, **mais pas la VM** (voir Problèmes rencontrés). Annulé par `no`.
+- Après correction : `3 to add, 3 to destroy`. Ordre observé : `ssh_host_key` (3 clés retirées de `known_hosts`), puis la VM, puis le disque, et la création dans l'ordre inverse. `ansible -m ping` réapprend la clé par `accept-new` : l'empreinte passe de `6itxLHvT…` à `j00ymbAT…`. VM neuve (`up 0 minutes`), `plan -detailed-exitcode` à `0`.
+
 ### Prochaine session
 
-- Étape 1, suite : installer k3s sur `k3s-vm-1` par Ansible.
-- Dans l'inventaire, gérer la clé d'hôte SSH, qui change à chaque recréation de la VM alors que l'IP reste la même. Pistes : `accept-new` limité au groupe k3s avec `ssh-keygen -R` au remplacement, ou une clé d'hôte générée par Terraform, mais elle finirait dans le state.
+- Étape 1, suite : inventaire `k3s` et installation de k3s sur `k3s-vm-1` par Ansible.
+- Au prochain lancement du lab Proxmox, vérifier que les VMs du lab passent avec `host_key_checking = True`. `10.10.30.101` est inconnue (elle sera apprise par `accept-new`), et une clé obsolète sera refusée.
 
 ## Décisions
 
@@ -86,6 +101,8 @@ Plan :
 - **03/11/2026 — State Terraform local et hors de Git.** Il peut contenir des secrets, et le dépôt est public. En équipe, il irait dans un backend distant avec un verrou (S3, Terraform Cloud). Le `.terraform.lock.hcl` est versionné, pour figer la version du provider.
 
 - **04/11/2026 — IP de `k3s-vm-1` réservée dans le DHCP du réseau `default`, avec une MAC fixée dans le code.** L'IP reste gérée au même endroit que celle d'OPNsense (`.119`), et la VM n'a rien de particulier à configurer. Comme le réseau `default` n'est pas géré par Terraform, la réservation passe par un `terraform_data` et `virsh net-update`. HashiCorp présente les provisioners comme un dernier recours : Terraform ne voit pas ce que fait la commande, et ne détecterait pas une réservation supprimée à la main. Accepté, faute de mieux sans gérer tout le réseau.
+
+- **06/11/2026 — Vérification des clés d'hôte rétablie dans Ansible, avec `accept-new`.** `host_key_checking = False` acceptait en silence une clé changée, donc un MITM. `accept-new` apprend les machines neuves sans intervention et refuse une clé qui change. Risque accepté : la toute première connexion fait confiance sans vérifier (TOFU), sur un pont local. L'ancienne clé est oubliée par Terraform quand le disque est remplacé. La variante d'une clé d'hôte générée par Terraform a été écartée : la clé privée finirait dans le state.
 
 ## Points ouverts
 
@@ -103,4 +120,5 @@ Plan :
 - **`qemu-img info` refusé sur le disque d'une VM en marche (03/11/2026).** `Failed to get shared "write" lock` : QEMU verrouille le disque pour éviter qu'un autre programme l'écrive en même temps. `-U` (`--force-share`) permet une lecture seule. Ne jamais l'utiliser pour une écriture (`resize`, `convert`) sur une VM allumée.
 - **Pas d'IP après l'ajout de la MAC, réservation pourtant en place (04/11/2026).** L'`apply` a ajouté la MAC et démarré la VM. Le démarrage était complet (8 s de CPU, 7 Mo écrits), mais `domstats` indiquait `tx.pkts=0` : aucune requête DHCP envoyée, donc la panne était dans la VM, pas dans `dnsmasq`. Au premier démarrage, cloud-init avait écrit une configuration réseau qui reconnaît la carte par son ancienne MAC, aléatoire. Il ne la réécrit pas, puisque l'`instance-id` n'a pas changé. Remplacer `libvirt_domain.k3s` seul n'aurait pas suffi, la configuration étant sur le disque : `terraform apply -replace=libvirt_volume.disk -replace=libvirt_domain.k3s`, sans perte puisque rien n'était encore installé. Avec la MAC fixée dans le code, un futur `-replace` ne reproduira pas le problème.
 - **`-replace` sans effet (04/11/2026).** La VM gardait son UUID et sa durée de fonctionnement. La confirmation n'avait pas reçu `yes` : Terraform n'accepte que ce mot en entier, et annule sur toute autre réponse. C'est voulu, pour une commande qui détruit.
+- **Remplacer le disque ne remplaçait pas la VM (06/11/2026).** `plan` de `-replace=libvirt_volume.disk` : 2 ressources, sans `libvirt_domain.k3s`. La VM désigne son disque par `pool` et `name`, deux valeurs fixées dans le code qui ne changent pas au remplacement : une référence crée un ordre, pas un remplacement. Si on avait appliqué, le qcow2 aurait été supprimé alors que QEMU le gardait ouvert, et la VM aurait continué sur l'ancien inode. Le `ping` aurait réappris l'**ancienne** clé, et au redémarrage suivant, sur le nouveau disque, la nouvelle clé aurait été refusée. Le 04/11, ça ne s'était pas vu, parce que les deux `-replace` étaient demandés. Corrigé par `lifecycle { replace_triggered_by = [libvirt_volume.disk] }` sur la VM. Le volume cidata n'y est pas : cloud-init ne le lit qu'au premier démarrage d'un disque.
 - **`ip` affiche « pas encore de bail DHCP » juste après l'`apply` (04/11/2026).** Le data source lit les baux dès que la VM démarre, avant sa requête DHCP. Le bail est arrivé quelques secondes plus tard : `terraform apply -refresh-only` met la sortie à jour.

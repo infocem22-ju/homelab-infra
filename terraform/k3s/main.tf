@@ -82,6 +82,19 @@ resource "terraform_data" "dhcp_reservation" {
   }
 }
 
+# La clé d'hôte SSH est générée par cloud-init sur le disque : quand le disque
+# est remplacé, l'ancienne clé est retirée du known_hosts local, et la suivante
+# sera apprise à la première connexion (StrictHostKeyChecking=accept-new).
+resource "terraform_data" "ssh_host_key" {
+  input            = var.ip
+  triggers_replace = [libvirt_volume.disk.id]
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "ssh-keygen -R ${self.input}"
+  }
+}
+
 resource "libvirt_domain" "k3s" {
   name        = var.vm_name
   type        = "kvm"
@@ -147,6 +160,12 @@ resource "libvirt_domain" "k3s" {
     graphics = [
       { vnc = { auto_port = true, listen = "127.0.0.1" } }
     ]
+  }
+
+  # Le disque est désigné par son nom, fixé dans le code : remplacer le volume
+  # ne change aucun attribut de la VM, qui resterait sur l'ancien inode.
+  lifecycle {
+    replace_triggered_by = [libvirt_volume.disk]
   }
 }
 
